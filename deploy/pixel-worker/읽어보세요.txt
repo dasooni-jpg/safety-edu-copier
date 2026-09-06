@@ -1,6 +1,11 @@
 픽셀 플로우 — 폴더째 올리는 방법 ② Cloudflare Workers (지금 주소 유지)
 ──────────────────────────────────────────────────────────
 지금 주소 https://pixel.dasooni.workers.dev/ 를 그대로 쓰는 방법임.
+
+※ 주의 — 대시보드의 [고정 파일을 업로드하여 Worker 업데이트] 화면에는
+  이 폴더를 올리면 안 됨. 그 화면은 HTML/CSS/JS 고정 자산만 받으므로
+  wrangler.toml 과 .js 를 같이 올리면 노란 경고가 뜸.
+  그 화면에는 deploy/pixel-upload 폴더(파일 2개)를 올릴 것.
 이 폴더에는 두 파일만 있으면 됨.
   wrangler.toml         ← 배포 설정 (워커 이름: pixel)
   pixel-flow-worker.js  ← 게임이 통째로 들어 있는 워커 파일
