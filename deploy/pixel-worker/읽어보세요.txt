@@ -1,0 +1,31 @@
+픽셀 플로우 — 폴더째 올리는 방법 ② Cloudflare Workers (지금 주소 유지)
+──────────────────────────────────────────────────────────
+지금 주소 https://pixel.dasooni.workers.dev/ 를 그대로 쓰는 방법임.
+이 폴더에는 두 파일만 있으면 됨.
+  wrangler.toml         ← 배포 설정 (워커 이름: pixel)
+  pixel-flow-worker.js  ← 게임이 통째로 들어 있는 워커 파일
+
+방법 A. GitHub 연동 (한 번만 설정하면 이후엔 푸시만 하면 됨) — 권장
+  1. Cloudflare 대시보드 → Workers & Pages → pixel 워커 열기
+  2. Settings → Build → Connect (또는 Git repository 연결)
+  3. 저장소: dasooni-jpg/safety-edu-copier
+     브랜치: main  (또는 이 작업 브랜치)
+     ★ Root directory 를  deploy/pixel-worker  로 지정  ← 이게 핵심
+     ★ Build watch paths 를  deploy/pixel-worker/*  로 제한 (권장)
+  4. Save → 이후 이 폴더의 파일이 바뀔 때마다 자동 배포됨
+
+방법 B. 파일 하나 붙여넣기 (설정 없이 지금 바로)
+  1. Workers & Pages → pixel 워커 → Edit code
+  2. pixel-flow-worker.js 를 열어 전체 복사 → 편집기 내용을 지우고 붙여넣기
+  3. Deploy
+
+방법 C. 내 컴퓨터에서 명령으로 올리기 (Node 설치 필요)
+  이 폴더에서:
+     npx wrangler login
+     npx wrangler deploy
+  ※ 대시보드의 워커 이름이 "pixel" 이 아니면 wrangler.toml 의 name 을 그 이름으로 고칠 것.
+     이름이 다르면 새 워커가 새로 만들어져 주소가 달라짐.
+
+주의
+  wrangler.toml 과 pixel-flow-worker.js 는 반드시 같은 폴더에 있어야 함.
+  파일 이름을 바꾸면 wrangler.toml 의 main 값도 같이 고쳐야 함.

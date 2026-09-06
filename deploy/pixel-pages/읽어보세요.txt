@@ -1,0 +1,19 @@
+픽셀 플로우 — 폴더째 올리는 방법 ① Cloudflare Pages (가장 쉬움)
+──────────────────────────────────────────────────────────
+※ 이 방법은 새 주소(○○○.pages.dev)가 만들어짐. 지금 주소를 그대로 쓰려면
+  deploy/pixel-worker 폴더의 안내(②번 방법)를 보세요.
+
+1. https://dash.cloudflare.com  접속 → Workers & Pages
+2. Create → Pages 탭 → "Upload assets" 선택
+3. 프로젝트 이름 입력 (예: pixel-flow) → Create project
+4. 이 폴더(pixel-pages) 안의 파일 4개를 통째로 드래그해서 올림
+   (폴더 자체를 드래그해도 되고, zip 파일을 올려도 됨)
+     index.html      ← 게임 본체
+     404.html        ← 없는 주소로 들어와도 게임이 열리게 하는 파일
+     _headers        ← 캐시·보안 설정
+     _redirects      ← 모든 주소를 게임으로 보내는 설정
+   ※ 이 안내 파일(읽어보세요.txt)은 올려도 되고 빼도 됨
+5. Deploy site → 잠시 뒤 나오는 주소를 누르면 게임이 열림
+
+다음에 화면을 고쳤을 때
+  같은 프로젝트 → Create deployment → 다시 폴더를 올리면 갱신됨

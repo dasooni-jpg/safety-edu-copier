@@ -1,0 +1,6 @@
+# 픽셀 플로우 — Cloudflare Worker 배포 설정
+# 워커 이름은 현재 주소(pixel.dasooni.workers.dev)에 맞춰 "pixel" 로 둠.
+# 대시보드의 워커 이름이 다르면 아래 name 만 그 이름으로 고치면 됨.
+name = "pixel"
+main = "pixel-flow-worker.js"
+compatibility_date = "2026-07-21"

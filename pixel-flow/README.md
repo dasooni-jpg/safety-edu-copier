@@ -21,6 +21,16 @@
 2. `pixel-flow/pixel-flow-worker.js` 파일을 열어 **전체 선택 → 복사 → 편집기에 덮어쓰기**
 3. Deploy → `https://pixel.dasooni.workers.dev/` 새로고침
 
+### 폴더째 올리고 싶을 때
+
+파일 하나를 붙여넣는 대신 폴더를 통째로 올리는 방법은 `deploy/` 폴더에 준비해 둠.
+
+- `deploy/pixel-worker/` — 지금 주소(`pixel.dasooni.workers.dev`)를 유지하는 방법. GitHub 연동 시
+  Cloudflare 설정에서 **Root directory 를 `deploy/pixel-worker`** 로 지정하면 이후 푸시만으로 자동 배포됨.
+- `deploy/pixel-pages/` — Cloudflare Pages 에 폴더(또는 zip)를 드래그해 올리는 가장 쉬운 방법. 주소는 새로 생김.
+
+자세한 클릭 순서는 각 폴더의 `읽어보세요.txt` 와 `deploy/README.md` 에 있음.
+
 화면만 고쳤을 때는 아래 순서로 다시 만들면 됨.
 
 ```powershell
