@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>안전교육 문구 복사기</title>
+<title>선생님 도구상자</title>
 <style>
   :root {
     --main: #3d7a5c;
@@ -34,8 +34,33 @@
   .desc {
     color: var(--sub);
     font-size: 14px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
   }
+  /* ── 탭 ── */
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 10px 10px 0 0;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    background: #fff;
+    color: var(--sub);
+    cursor: pointer;
+  }
+  .tab.on {
+    background: var(--main);
+    border-color: var(--main);
+    color: #fff;
+  }
+  .panel[hidden] { display: none; }
   .card {
     background: #fff;
     border: 1px solid var(--border);
@@ -95,6 +120,10 @@
     font-family: inherit;
     background: var(--main-light);
   }
+  textarea.input {
+    background: #fff;
+    min-height: 92px;
+  }
   .copy-btn {
     margin-top: 10px;
     width: 100%;
@@ -106,9 +135,17 @@
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
+    font-family: inherit;
   }
   .copy-btn:hover { background: #2f6249; }
   .copy-btn.copied { background: var(--accent); }
+  .copy-btn.small {
+    width: auto;
+    margin: 0;
+    padding: 7px 14px;
+    font-size: 13px;
+    border-radius: 8px;
+  }
   table {
     width: 100%;
     border-collapse: collapse;
@@ -135,36 +172,145 @@
     color: var(--sub);
     margin-top: 6px;
   }
+  /* ── 출결 안내 문자 ── */
+  .msg {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    margin-top: 12px;
+    background: var(--main-light);
+  }
+  .msg.bad {
+    background: #fdf1ef;
+    border-color: #f0cfc9;
+  }
+  .msg .body {
+    font-size: 15px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: keep-all;
+  }
+  .msg .foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  .msg .src {
+    font-size: 12px;
+    color: var(--sub);
+  }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 1px 6px;
+    margin-left: 6px;
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>🛡️ 안전교육 문구 복사기</h1>
-  <div class="desc">주차를 고르면 스프레드시트 최신 안전교육 문구를 불러와요. 복사해서 한글 주간학습안내 표에 붙여넣으세요.</div>
+  <h1>🧰 선생님 도구상자</h1>
+  <div class="desc">교실에서 자주 쓰는 문구를 골라 만들고 바로 복사하는 도구 모음이에요.</div>
 
-  <div class="card">
-    <div class="controls">
-      <select id="weekSelect"></select>
-      <button class="refresh-btn" id="refreshBtn">↻ 최신 내용 다시 불러오기</button>
-      <span class="status" id="statusText">불러오는 중...</span>
-    </div>
-
-    <div id="content"></div>
-
-    <label class="toggle">
-      <input type="checkbox" id="labelToggle" checked>
-      항목 이름(성 안전, 교통 안전 등) 포함해서 복사하기
-    </label>
-
-    <div class="output-box">
-      <textarea id="output" readonly></textarea>
-      <button class="copy-btn" id="copyBtn">복사하기</button>
-      <div class="hint">복사 후 한글 표의 안전교육 칸에 붙여넣기(Ctrl+V) 하세요.</div>
-    </div>
+  <div class="tabs">
+    <button class="tab on" data-tab="safety">🛡️ 안전교육 문구</button>
+    <button class="tab" data-tab="attend">✉️ 출결 안내 문자</button>
   </div>
+
+  <!-- ═══ 탭 1: 안전교육 문구 복사기 ═══ -->
+  <section class="panel" id="panel-safety">
+    <div class="desc">주차를 고르면 스프레드시트 최신 안전교육 문구를 불러와요. 복사해서 한글 주간학습안내 표에 붙여넣으세요.</div>
+    <div class="card">
+      <div class="controls">
+        <select id="weekSelect"></select>
+        <button class="refresh-btn" id="refreshBtn">↻ 최신 내용 다시 불러오기</button>
+        <span class="status" id="statusText">불러오는 중...</span>
+      </div>
+
+      <div id="content"></div>
+
+      <label class="toggle">
+        <input type="checkbox" id="labelToggle" checked>
+        항목 이름(성 안전, 교통 안전 등) 포함해서 복사하기
+      </label>
+
+      <div class="output-box">
+        <textarea id="output" readonly></textarea>
+        <button class="copy-btn" id="copyBtn">복사하기</button>
+        <div class="hint">복사 후 한글 표의 안전교육 칸에 붙여넣기(Ctrl+V) 하세요.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 탭 2: 출결 간단 안내 문자 ═══ -->
+  <section class="panel" id="panel-attend" hidden>
+    <div class="desc">날짜·이름·출결 종류만 적으면 학부모 안내 문자를 만들어요. 한 줄에 한 건씩 적으면 여러 건도 한 번에 만들어져요.</div>
+    <div class="card">
+      <textarea class="input" id="attendInput" placeholder="7/21 임송현 질병결석&#10;이도현 7/22 병지각&#10;7/23 김하늘 조퇴"></textarea>
+
+      <label class="toggle">
+        <input type="checkbox" id="greetToggle" checked>
+        “안녕하세요, 학부모님.” 인사말 넣기
+      </label>
+
+      <div id="attendResult"></div>
+
+      <button class="copy-btn" id="attendCopyAllBtn" hidden>만들어진 문자 모두 복사하기</button>
+      <div class="hint">
+        인식하는 말: 질병결석 · 병결 · 병지각 · 병조퇴 · 병결과 · 미인정(무단)결석 · 인정결석 · 기타결석 · 결석 · 지각 · 조퇴 · 결과<br>
+        날짜를 빼면 오늘 날짜로 만들어요. 입력한 내용은 저장되지 않고 이 화면에서만 쓰여요.
+      </div>
+    </div>
+  </section>
 </div>
 
 <script>
+/* ═══════════ 탭 전환 ═══════════ */
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b === btn));
+    document.querySelectorAll(".panel").forEach(p => {
+      p.hidden = (p.id !== "panel-" + btn.dataset.tab);
+    });
+  });
+});
+
+/* ═══════════ 공통: 복사 ═══════════ */
+async function copyText(text, btn, doneLabel) {
+  let ok = true;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+    } catch (e2) {
+      ok = false;
+    }
+  }
+  if (btn) {
+    const original = btn.dataset.label || btn.textContent;
+    btn.dataset.label = original;
+    btn.textContent = ok ? (doneLabel || "복사됨!") : "복사 실패 - 직접 드래그해서 복사해주세요";
+    btn.classList.toggle("copied", ok);
+    setTimeout(() => {
+      btn.textContent = original;
+      btn.classList.remove("copied");
+    }, 1500);
+  }
+  return ok;
+}
+
+/* ═══════════ 탭 1: 안전교육 문구 ═══════════ */
 const SEMESTERS = [
   { label: "1학기", start: 1, end: 22 },
   { label: "2학기", start: 23, end: 42 }
@@ -257,31 +403,181 @@ function updateOutput() {
 document.getElementById("weekSelect").addEventListener("change", renderWeek);
 document.getElementById("labelToggle").addEventListener("change", updateOutput);
 document.getElementById("refreshBtn").addEventListener("click", () => loadAll(true));
-document.getElementById("copyBtn").addEventListener("click", async function () {
-  const output = document.getElementById("output");
-  output.select();
-  let ok = true;
-  try {
-    await navigator.clipboard.writeText(output.value);
-  } catch (e) {
-    try {
-      ok = document.execCommand("copy");
-    } catch (e2) {
-      ok = false;
-    }
-  }
-  const btn = document.getElementById("copyBtn");
-  const original = btn.textContent;
-  btn.textContent = ok ? "복사됨!" : "복사 실패 - 직접 드래그해서 복사해주세요";
-  btn.classList.toggle("copied", ok);
-  setTimeout(() => {
-    btn.textContent = original;
-    btn.classList.remove("copied");
-  }, 1500);
+document.getElementById("copyBtn").addEventListener("click", function () {
+  copyText(document.getElementById("output").value, this);
 });
 
 buildWeekOptions();
 loadAll();
+
+/* ═══════════ 탭 2: 출결 간단 안내 문자 ═══════════ */
+// 출결 종류: 긴 말부터 찾아야 "인정결석"이 "결석"으로 잘못 잡히지 않음
+const ATTEND_TYPES = [
+  { keys: ["질병결석", "병결석", "병결"], label: "질병결석", kind: "결석" },
+  { keys: ["질병지각", "병지각"], label: "질병지각", kind: "지각" },
+  { keys: ["질병조퇴", "병조퇴"], label: "질병조퇴", kind: "조퇴" },
+  { keys: ["질병결과", "병결과"], label: "질병결과", kind: "결과" },
+  { keys: ["미인정결석", "무단결석"], label: "미인정결석", kind: "결석" },
+  { keys: ["미인정지각", "무단지각"], label: "미인정지각", kind: "지각" },
+  { keys: ["미인정조퇴", "무단조퇴"], label: "미인정조퇴", kind: "조퇴" },
+  { keys: ["미인정결과", "무단결과"], label: "미인정결과", kind: "결과" },
+  { keys: ["출석인정결석", "인정결석"], label: "인정결석", kind: "결석" },
+  { keys: ["출석인정지각", "인정지각"], label: "인정지각", kind: "지각" },
+  { keys: ["출석인정조퇴", "인정조퇴"], label: "인정조퇴", kind: "조퇴" },
+  { keys: ["출석인정결과", "인정결과"], label: "인정결과", kind: "결과" },
+  { keys: ["기타결석"], label: "기타결석", kind: "결석" },
+  { keys: ["기타지각"], label: "기타지각", kind: "지각" },
+  { keys: ["기타조퇴"], label: "기타조퇴", kind: "조퇴" },
+  { keys: ["기타결과"], label: "기타결과", kind: "결과" },
+  { keys: ["결석"], label: "결석", kind: "결석" },
+  { keys: ["지각"], label: "지각", kind: "지각" },
+  { keys: ["조퇴"], label: "조퇴", kind: "조퇴" },
+  { keys: ["결과"], label: "결과", kind: "결과" }
+];
+
+// { key, type } 목록을 말 길이 내림차순으로 펼쳐 둠
+const ATTEND_KEYS = ATTEND_TYPES
+  .reduce((acc, t) => acc.concat(t.keys.map(k => ({ key: k, type: t }))), [])
+  .sort((a, b) => b.key.length - a.key.length);
+
+function findAttendType(line) {
+  for (const item of ATTEND_KEYS) {
+    const at = line.indexOf(item.key);
+    if (at !== -1) return { type: item.type, at: at, key: item.key };
+  }
+  return null;
+}
+
+function findAttendDate(line) {
+  // 7/21, 7.21, 7-21, 7월 21일 모두 인식
+  const m = line.match(/(\d{1,2})\s*[월./\-]\s*(\d{1,2})\s*일?/);
+  if (!m) return null;
+  const month = parseInt(m[1], 10);
+  const day = parseInt(m[2], 10);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { month: month, day: day, at: m.index, raw: m[0] };
+}
+
+function findAttendNames(rest) {
+  return rest
+    .split(/[\s,、·/]+/)
+    .map(s => s.replace(/^[(\[{'"]+|[)\]}'"?!.]+$/g, "").trim())
+    .filter(s => /^[가-힣]{2,5}$/.test(s));
+}
+
+// 한 줄 → 메시지 여러 개(이름이 여럿이면 이름마다 하나씩)
+function parseAttendLine(line) {
+  const type = findAttendType(line);
+  if (!type) {
+    return [{ ok: false, src: line, reason: "출결 종류(질병결석·병지각 등)를 찾지 못했어요." }];
+  }
+  const date = findAttendDate(line);
+
+  let rest = line;
+  rest = rest.slice(0, type.at) + " " + rest.slice(type.at + type.key.length);
+  if (date) rest = rest.replace(date.raw, " ");
+  // 학생/님/때문에 같은 꼬리말은 이름 후보에서 빼 둠
+  rest = rest.replace(/학생|어린이|학부모님|학부모|님/g, " ");
+
+  const names = findAttendNames(rest);
+  if (!names.length) {
+    return [{ ok: false, src: line, reason: "학생 이름을 찾지 못했어요. (한글 이름 2~5자)" }];
+  }
+
+  let month, day, today = false;
+  if (date) {
+    month = date.month;
+    day = date.day;
+  } else {
+    const now = new Date();
+    month = now.getMonth() + 1;
+    day = now.getDate();
+    today = true;
+  }
+
+  return names.map(name => ({
+    ok: true,
+    src: line,
+    name: name,
+    month: month,
+    day: day,
+    today: today,
+    type: type.type
+  }));
+}
+
+function buildAttendMessage(item, withGreeting) {
+  // 결석 신고 / 결석(지각) 신고 / 결석(조퇴) 신고 / 결석(결과) 신고
+  const report = item.type.kind === "결석" ? "결석 신고" : "결석(" + item.type.kind + ") 신고";
+  const sentence = item.month + "월 " + item.day + "일 " + item.name + " 학생의 " + item.type.label +
+    " 처리를 위해 나이스 학부모서비스에 " + report + " 등록을 부탁드립니다.";
+  return withGreeting ? "안녕하세요, 학부모님.\n\n" + sentence : sentence;
+}
+
+function renderAttend() {
+  const raw = document.getElementById("attendInput").value;
+  const withGreeting = document.getElementById("greetToggle").checked;
+  const resultEl = document.getElementById("attendResult");
+  const copyAllBtn = document.getElementById("attendCopyAllBtn");
+  resultEl.innerHTML = "";
+
+  const lines = raw.split("\n").map(s => s.trim()).filter(s => s.length);
+  if (!lines.length) {
+    copyAllBtn.hidden = true;
+    return;
+  }
+
+  const items = lines.reduce((acc, line) => acc.concat(parseAttendLine(line)), []);
+  const messages = [];
+
+  items.forEach(item => {
+    const box = document.createElement("div");
+    box.className = "msg" + (item.ok ? "" : " bad");
+
+    const body = document.createElement("div");
+    body.className = "body";
+
+    if (item.ok) {
+      const text = buildAttendMessage(item, withGreeting);
+      messages.push(text);
+      body.textContent = text;
+      box.appendChild(body);
+
+      const foot = document.createElement("div");
+      foot.className = "foot";
+      const btn = document.createElement("button");
+      btn.className = "copy-btn small";
+      btn.textContent = "복사하기";
+      btn.addEventListener("click", function () { copyText(text, this); });
+      foot.appendChild(btn);
+      if (item.today) {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = "날짜가 없어 오늘 날짜로 넣었어요";
+        foot.appendChild(badge);
+      }
+      box.appendChild(foot);
+    } else {
+      body.innerHTML = '<span class="error">' + item.reason + "</span>";
+      box.appendChild(body);
+      const src = document.createElement("div");
+      src.className = "src";
+      src.textContent = "입력한 줄: " + item.src;
+      box.appendChild(src);
+    }
+
+    resultEl.appendChild(box);
+  });
+
+  copyAllBtn.hidden = messages.length < 2;
+  copyAllBtn.dataset.all = messages.join("\n\n");
+}
+
+document.getElementById("attendInput").addEventListener("input", renderAttend);
+document.getElementById("greetToggle").addEventListener("change", renderAttend);
+document.getElementById("attendCopyAllBtn").addEventListener("click", function () {
+  copyText(this.dataset.all || "", this, "모두 복사됨!");
+});
 </script>
 </body>
 </html>
