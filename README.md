@@ -1,4 +1,28 @@
-# 안전교육 문구 복사기
+# 안전교육 문구 복사기 (보관용)
+
+> ## ⚠️ 이 저장소는 더 이상 배포에 쓰이지 않습니다
+>
+> 이 프로젝트는 **[dasooni-jpg/geulssugi-mirror](https://github.com/dasooni-jpg/geulssugi-mirror)** 저장소의
+> **`safety-edu/` 폴더**로 통합되었습니다. Cloudflare Worker(`safety-edu-copier`)는 **그쪽에서만** 자동 배포됩니다.
+>
+> **여기에 코드를 올려도 실제 화면은 바뀌지 않습니다.**
+>
+> | | 위치 |
+> |---|---|
+> | 고쳐야 할 곳 | `geulssugi-mirror` 저장소의 `safety-edu/` 폴더 |
+> | 배포 설정 문서 | 같은 폴더의 `README.md` (Root directory·Deploy command 표) |
+> | 이 저장소 | 통합 이전 기록 보관용 |
+>
+> 이 저장소에만 들어 있고 아직 `geulssugi-mirror`로 옮기지 않은 코드가 있는지 먼저 확인하세요.
+
+## 바로 가기 주소 (실제 서비스 주소)
+
+| 도구 | 주소 |
+|---|---|
+| 안전교육 문구 복사기 | https://safety-edu-copier.dasooni.workers.dev/ |
+| 라운드 좋아요 — 교사용 | https://safety-edu-copier.dasooni.workers.dev/vote/teacher |
+| 라운드 좋아요 — 학생용 | https://safety-edu-copier.dasooni.workers.dev/vote |
+
 
 주간학습안내를 만들 때 안전교육 문구를 매번 손으로 바꾸는 번거로움을 없애기 위한 도구입니다.
 주차(1~42주)를 고르면 [구글시트](https://docs.google.com/spreadsheets/d/1sC7x0KuTgRVybVoCzeHoJr0lcEGc1RCwCQYoX8TcJgA)의 최신 안전교육 문구 6개 항목을 표로 보여주고, 복사 버튼으로 바로 복사해서 한글 표에 붙여넣을 수 있습니다.
@@ -8,8 +32,8 @@
 같은 워커 안에 들어 있는 두 번째 도구입니다. 한 라운드에 학생 한 명이 좋아요를 한 번만 누를 수 있고,
 **선생님이 "결과 보기"를 눌렀을 때만** 그 라운드의 좋아요 개수가 화면에 나옵니다(실시간 표시 아님).
 
-- 교사용 주소: `https://<워커주소>/vote/teacher`
-- 학생용 주소: `https://<워커주소>/vote` (또는 `?code=1234`를 붙이면 코드 입력 없이 바로 참여)
+- 교사용 주소: `https://safety-edu-copier.dasooni.workers.dev/vote/teacher`
+- 학생용 주소: `https://safety-edu-copier.dasooni.workers.dev/vote` (또는 `?code=1234`를 붙이면 코드 입력 없이 바로 참여)
 
 ### 쓰는 순서
 
@@ -48,10 +72,16 @@
 
 ## 배포 (Cloudflare Workers, GitHub 연동)
 
-Cloudflare 대시보드 → Workers & Pages → Create → "Import a repository" 에서 이 저장소를 연결하면,
+> **이 절은 통합 이전 기준입니다.** 지금 배포는 `geulssugi-mirror` 저장소의 `safety-edu/` 폴더에서 이루어집니다.
+> 실제 설정값(Root directory, Deploy command, Build watch paths)은 그쪽 README의 표를 보세요.
+
+(예전 방식) Cloudflare 대시보드 → Workers & Pages → Create → "Import a repository" 에서 이 저장소를 연결하면,
 `main` 브랜치에 푸시할 때마다 `wrangler.toml` 설정대로 자동 배포됩니다. 별도 빌드 명령 없이 `safety-edu-worker.js`를 그대로 올립니다.
 
 ## 화면(app.html)을 고칠 때
+
+> **먼저 확인:** 고칠 파일이 `geulssugi-mirror`의 `safety-edu/` 폴더에도 있는지 보고, 있으면 **그쪽을 고치세요.**
+> 아래 순서는 그 폴더에서도 그대로 통합니다.
 
 1. `safety-edu-app/app.html`(안전교육) 또는 `vote-app/app.html`(라운드 좋아요) 수정
 2. `powershell -ExecutionPolicy Bypass -File build-safety-edu-worker.ps1` 실행 → `safety-edu-worker.js` 갱신

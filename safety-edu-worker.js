@@ -3,11 +3,11 @@
  * ──────────────────────────────────────────────────────────
  * 주간학습안내를 만들 때 안전교육 문구를 매번 손으로 바꾸는 번거로움을 없애기 위한 도구.
  * 주차를 고르면 구글시트 최신 내용을 표로 보여주고 복사 버튼으로 복사 → 한글 표에 붙여넣기.
- *  - 주소: https://<워커주소>/
+ *  - 주소: https://safety-edu-copier.dasooni.workers.dev/
  *
  * 같은 워커에 "라운드 좋아요" 수업 도구도 함께 들어 있음.
- *  - 교사용: https://<워커주소>/vote/teacher
- *  - 학생용: https://<워커주소>/vote?code=1234
+ *  - 교사용: https://safety-edu-copier.dasooni.workers.dev/vote/teacher
+ *  - 학생용: https://safety-edu-copier.dasooni.workers.dev/vote?code=1234
  *  - 방 상태는 Durable Object(VOTE_ROOM)에 저장되며 12시간 뒤 자동 삭제됨.
  *
  * ※ 이 파일은 build-safety-edu-worker.ps1 이 만든 자동 생성본입니다.
