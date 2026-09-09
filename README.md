@@ -1,5 +1,14 @@
 # 안전교육 문구 복사기
 
+## 바로 가기 주소
+
+| 도구 | 주소 |
+|---|---|
+| 안전교육 문구 복사기 | https://safety-edu-copier.dasooni.workers.dev/ |
+| 라운드 좋아요 — 교사용 | https://safety-edu-copier.dasooni.workers.dev/vote/teacher |
+| 라운드 좋아요 — 학생용 | https://safety-edu-copier.dasooni.workers.dev/vote |
+
+
 주간학습안내를 만들 때 안전교육 문구를 매번 손으로 바꾸는 번거로움을 없애기 위한 도구입니다.
 주차(1~42주)를 고르면 [구글시트](https://docs.google.com/spreadsheets/d/1sC7x0KuTgRVybVoCzeHoJr0lcEGc1RCwCQYoX8TcJgA)의 최신 안전교육 문구 6개 항목을 표로 보여주고, 복사 버튼으로 바로 복사해서 한글 표에 붙여넣을 수 있습니다.
 
@@ -8,8 +17,8 @@
 같은 워커 안에 들어 있는 두 번째 도구입니다. 한 라운드에 학생 한 명이 좋아요를 한 번만 누를 수 있고,
 **선생님이 "결과 보기"를 눌렀을 때만** 그 라운드의 좋아요 개수가 화면에 나옵니다(실시간 표시 아님).
 
-- 교사용 주소: `https://<워커주소>/vote/teacher`
-- 학생용 주소: `https://<워커주소>/vote` (또는 `?code=1234`를 붙이면 코드 입력 없이 바로 참여)
+- 교사용 주소: `https://safety-edu-copier.dasooni.workers.dev/vote/teacher`
+- 학생용 주소: `https://safety-edu-copier.dasooni.workers.dev/vote` (또는 `?code=1234`를 붙이면 코드 입력 없이 바로 참여)
 
 ### 쓰는 순서
 

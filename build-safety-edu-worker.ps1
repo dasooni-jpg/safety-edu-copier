@@ -29,5 +29,5 @@ $dest = Join-Path $root "safety-edu-worker.js"
 
 Write-Host "OK: $dest ($([Math]::Round((Get-Item $dest).Length/1KB)) KB)"
 Write-Host "-> 기본: git commit 후 main 브랜치에 push 하면 Cloudflare가 자동 배포합니다."
-Write-Host "-> 안전교육 문구: https://<워커주소>/"
-Write-Host "-> 라운드 좋아요(교사): https://<워커주소>/vote/teacher"
+Write-Host "-> 안전교육 문구: https://safety-edu-copier.dasooni.workers.dev/"
+Write-Host "-> 라운드 좋아요(교사): https://safety-edu-copier.dasooni.workers.dev/vote/teacher"
