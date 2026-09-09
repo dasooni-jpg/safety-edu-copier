@@ -1,6 +1,21 @@
-# 안전교육 문구 복사기
+# 안전교육 문구 복사기 (보관용)
 
-## 바로 가기 주소
+> ## ⚠️ 이 저장소는 더 이상 배포에 쓰이지 않습니다
+>
+> 이 프로젝트는 **[dasooni-jpg/geulssugi-mirror](https://github.com/dasooni-jpg/geulssugi-mirror)** 저장소의
+> **`safety-edu/` 폴더**로 통합되었습니다. Cloudflare Worker(`safety-edu-copier`)는 **그쪽에서만** 자동 배포됩니다.
+>
+> **여기에 코드를 올려도 실제 화면은 바뀌지 않습니다.**
+>
+> | | 위치 |
+> |---|---|
+> | 고쳐야 할 곳 | `geulssugi-mirror` 저장소의 `safety-edu/` 폴더 |
+> | 배포 설정 문서 | 같은 폴더의 `README.md` (Root directory·Deploy command 표) |
+> | 이 저장소 | 통합 이전 기록 보관용 |
+>
+> 이 저장소에만 들어 있고 아직 `geulssugi-mirror`로 옮기지 않은 코드가 있는지 먼저 확인하세요.
+
+## 바로 가기 주소 (실제 서비스 주소)
 
 | 도구 | 주소 |
 |---|---|
@@ -57,10 +72,16 @@
 
 ## 배포 (Cloudflare Workers, GitHub 연동)
 
-Cloudflare 대시보드 → Workers & Pages → Create → "Import a repository" 에서 이 저장소를 연결하면,
+> **이 절은 통합 이전 기준입니다.** 지금 배포는 `geulssugi-mirror` 저장소의 `safety-edu/` 폴더에서 이루어집니다.
+> 실제 설정값(Root directory, Deploy command, Build watch paths)은 그쪽 README의 표를 보세요.
+
+(예전 방식) Cloudflare 대시보드 → Workers & Pages → Create → "Import a repository" 에서 이 저장소를 연결하면,
 `main` 브랜치에 푸시할 때마다 `wrangler.toml` 설정대로 자동 배포됩니다. 별도 빌드 명령 없이 `safety-edu-worker.js`를 그대로 올립니다.
 
 ## 화면(app.html)을 고칠 때
+
+> **먼저 확인:** 고칠 파일이 `geulssugi-mirror`의 `safety-edu/` 폴더에도 있는지 보고, 있으면 **그쪽을 고치세요.**
+> 아래 순서는 그 폴더에서도 그대로 통합니다.
 
 1. `safety-edu-app/app.html`(안전교육) 또는 `vote-app/app.html`(라운드 좋아요) 수정
 2. `powershell -ExecutionPolicy Bypass -File build-safety-edu-worker.ps1` 실행 → `safety-edu-worker.js` 갱신
