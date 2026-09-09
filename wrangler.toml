@@ -1,3 +1,12 @@
 name = "safety-edu-copier"
 main = "safety-edu-worker.js"
 compatibility_date = "2026-07-21"
+
+# ── 라운드 좋아요: 방 하나당 Durable Object 하나 (무료 플랜 지원) ──
+[[durable_objects.bindings]]
+name = "VOTE_ROOM"
+class_name = "VoteRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["VoteRoom"]
