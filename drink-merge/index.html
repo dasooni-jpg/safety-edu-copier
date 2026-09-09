@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#f6c86b" />
+<title>다람쌤 음료 카페 — 잔 합치기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;700&display=swap" />
+<style>
+/* ─────────────────────────────────────────────
+   다람쌤 음료 카페 — 잔 합치기
+   같은 음료가 옆에 붙으면 한 단계 위 음료로 합쳐지는 발사형 퍼즐
+   한낮의 정원 카페 한 가지 분위기로 고정(단일 테마)
+   ───────────────────────────────────────────── */
+:root{
+  /* 정원 */
+  --sky:#dcefe4; --sky2:#f7e6ee; --hedge:#8fbd7e; --hedge-d:#5c9155;
+  /* 나무 테이블 */
+  --wood:#f0b667; --wood-2:#e5a34f; --wood-line:#d2913f; --wood-lip:#b8762f;
+  /* 잉크·중립 (따뜻한 갈색 쪽으로 치우친 중립) */
+  --ink:#4a3527; --ink-2:#8a705d; --paper:#fffaf2; --paper-2:#fdf0dd;
+  /* 강조 */
+  --ticket:#e0574f; --gold:#f5b731; --gold-d:#d99417; --mint:#4fb08a;
+  --danger:#d94b45;
+  --r:18px;
+  --shadow:0 10px 26px rgba(120,78,36,.18);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{
+  font-family:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  color:var(--ink); line-height:1.5; overflow:hidden;
+  background:
+    radial-gradient(120% 60% at 50% 0%, #ffffff 0%, rgba(255,255,255,0) 60%),
+    linear-gradient(170deg, var(--sky) 0%, var(--sky2) 100%);
+  -webkit-font-smoothing:antialiased;
+  user-select:none;
+}
+.jua{font-family:"Jua","Noto Sans KR",system-ui,sans-serif;font-weight:400}
+.num{font-variant-numeric:tabular-nums}
+
+.app{max-width:480px;margin:0 auto;height:100%;display:flex;flex-direction:column;
+  padding:8px 12px calc(8px + env(safe-area-inset-bottom));gap:8px}
+
+/* ── 상단 바 ─────────────────────────────── */
+header.top{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.mascot{width:36px;height:36px;object-fit:contain;border-radius:10px;flex:0 0 auto}
+.brand{line-height:1.15}
+.brand h1{margin:0;font-size:17px;letter-spacing:-.4px;font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400}
+.brand p{margin:0;font-size:11px;color:var(--ink-2);white-space:nowrap}
+.spacer{flex:1}
+.coin{display:flex;align-items:center;gap:6px;background:var(--paper);border-radius:999px;
+  padding:5px 12px 5px 6px;box-shadow:var(--shadow);border:2px solid #fff}
+.coin b{font-family:"Jua",sans-serif;font-size:18px;font-weight:400;letter-spacing:.5px}
+.coin .c{width:22px;height:22px;border-radius:50%;flex:0 0 auto;
+  background:radial-gradient(circle at 34% 30%, #ffe89a, var(--gold) 60%, var(--gold-d));
+  box-shadow:inset 0 -2px 0 rgba(0,0,0,.12)}
+.iconbtn{width:36px;height:36px;border-radius:12px;border:2px solid #fff;background:var(--paper);
+  box-shadow:var(--shadow);font-size:17px;cursor:pointer;display:grid;place-items:center;padding:0;
+  transition:transform .12s}
+.iconbtn:active{transform:scale(.92)}
+.iconbtn:focus-visible,.btn:focus-visible{outline:3px solid var(--mint);outline-offset:2px}
+
+/* ── 놀이판 ───────────────────────────────── */
+.board{position:relative;flex:1 1 auto;min-height:340px;border-radius:26px;overflow:hidden;
+  box-shadow:var(--shadow);--gw:56px;--slot:42px}
+/* 정원 배경: 위 30%에 화단·난간·아치, 그 아래는 테이블이 놓인 바닥 */
+.garden{position:absolute;inset:0;
+  background:linear-gradient(180deg,
+    #eef6f0 0%, #e6f1e2 9%, #d8ead0 17%,
+    var(--hedge) 21%, var(--hedge-d) 26%,
+    #e6b9c4 26.5%, #d99aab 29.5%,           /* 분홍 벽돌 화단 테두리 */
+    #efe0cb 30.5%, #e8d5bb 100%);
+}
+/* 바닥 돌바닥 결 */
+.garden::after{content:"";position:absolute;left:0;right:0;top:30.5%;bottom:0;
+  background:
+    radial-gradient(22px 12px at 12% 22%, rgba(255,255,255,.5), rgba(255,255,255,0) 70%),
+    radial-gradient(26px 13px at 88% 46%, rgba(255,255,255,.45), rgba(255,255,255,0) 70%),
+    radial-gradient(18px 10px at 6% 78%, rgba(255,255,255,.4), rgba(255,255,255,0) 70%),
+    radial-gradient(20px 11px at 95% 82%, rgba(255,255,255,.4), rgba(255,255,255,0) 70%)}
+/* 화단 그림(난간·꽃·아치) */
+.flora{position:absolute;left:0;right:0;top:0;height:31%;display:block;pointer-events:none}
+
+/* 빨랫줄 + 주문표 */
+.wire{position:absolute;left:4%;right:8%;top:9%;height:26px;pointer-events:none}
+.wire svg{width:100%;height:100%;display:block;overflow:visible}
+.tickets{position:absolute;left:5%;right:23%;top:10%;display:flex;justify-content:center;gap:12px}
+.ticket{width:98px;background:var(--paper);border-radius:4px 4px 8px 8px;padding:20px 8px 8px;
+  text-align:center;box-shadow:0 8px 18px rgba(90,60,30,.22);position:relative;
+  transform-origin:50% 0;animation:sway 5.5s ease-in-out infinite}
+.ticket:first-child{z-index:2}
+.ticket:nth-child(2){animation-delay:-2.4s;transform:scale(.9);opacity:.94}
+@keyframes sway{0%,100%{rotate:-1.4deg}50%{rotate:1.4deg}}
+.ticket .head{position:absolute;left:0;right:0;top:0;background:var(--ticket);color:#fff;
+  font-size:9px;letter-spacing:.6px;padding:2px 0;font-weight:700;border-radius:3px 3px 0 0}
+.ticket .peg{position:absolute;top:-9px;left:50%;translate:-50% 0;width:9px;height:16px;border-radius:3px;
+  background:linear-gradient(180deg,#f6d9a8,#d7a765);box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.ticket .art{height:56px;display:grid;place-items:center;margin-bottom:2px}
+.ticket .art svg{height:56px;width:auto}
+.ticket .total{border-top:1px dashed #c9b49a;padding-top:4px;font-size:11px;color:var(--ink-2);
+  display:flex;justify-content:space-between;align-items:baseline;gap:4px}
+.ticket .total b{font-family:"Jua",sans-serif;font-weight:400;font-size:16px;color:var(--ink)}
+.ticket .bars{height:13px;margin-top:5px;border-radius:1px;
+  background:repeating-linear-gradient(90deg,
+    #3d2c20 0 1.5px, #fff 1.5px 3px, #3d2c20 3px 4px, #fff 4px 7px,
+    #3d2c20 7px 8.5px, #fff 8.5px 10px)}
+.ticket.done{animation:paid .5s ease forwards}
+@keyframes paid{to{transform:translateY(-26px) scale(.7);opacity:0}}
+
+/* 다음 잔 */
+.next{position:absolute;right:10px;top:6%;text-align:center;pointer-events:none}
+.next .ring{width:66px;height:66px;border-radius:50%;background:var(--paper);
+  border:4px solid #fff;box-shadow:var(--shadow);display:grid;place-items:center}
+.next .ring svg{height:48px;width:auto}
+.next span{display:inline-block;font-family:"Jua",sans-serif;font-size:13px;color:#fff;margin-top:5px;
+  background:rgba(74,53,39,.66);border-radius:999px;padding:1px 11px 2px}
+
+/* 나무 테이블 */
+.table{position:absolute;left:5%;right:5%;top:30%;bottom:6%;border-radius:14px;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.14), rgba(255,255,255,0) 20%,
+      rgba(0,0,0,0) 80%, rgba(120,70,20,.12)),
+    repeating-linear-gradient(90deg, rgba(0,0,0,0) 0 11.9%,
+      rgba(160,98,38,.24) 11.9% 12.2%, rgba(255,247,230,.18) 12.2% 12.5%),
+    linear-gradient(180deg, #f5c179 0%, var(--wood) 22%, var(--wood-2) 100%);
+  box-shadow:inset 0 7px 0 rgba(255,255,255,.18), inset 0 -12px 0 rgba(139,88,32,.20),
+    0 14px 0 var(--wood-lip), 0 20px 26px rgba(110,70,30,.3);
+}
+/* 상판 나사못 */
+.table::before{content:"";position:absolute;left:6%;right:6%;bottom:7%;height:5px;
+  background:repeating-linear-gradient(90deg, rgba(150,95,40,.55) 0 5px, rgba(0,0,0,0) 5px 25%);
+  border-radius:3px;opacity:.45}
+/* 발사선 */
+.dash{position:absolute;left:7%;right:7%;height:0;border-top:5px dashed rgba(255,255,255,.9);
+  border-radius:3px;pointer-events:none}
+/* 조준선 */
+.guide{position:absolute;width:5px;border-radius:3px;pointer-events:none;opacity:0;
+  background:linear-gradient(180deg, rgba(255,255,255,.15), rgba(255,255,255,.95));
+  transition:opacity .12s}
+.guide.on{opacity:1}
+.slotmark{position:absolute;width:var(--slot);height:8px;border-radius:5px;background:rgba(255,255,255,.85);
+  pointer-events:none;opacity:0;transition:opacity .12s,transform .14s}
+.slotmark.on{opacity:.9}
+
+/* 잔 */
+.glass{position:absolute;left:0;top:0;width:var(--gw);transition:transform .17s cubic-bezier(.3,1.3,.5,1);
+  will-change:transform;pointer-events:none}
+.glass svg{width:100%;height:auto;display:block;filter:drop-shadow(0 4px 4px rgba(120,80,40,.28))}
+.glass.pop{animation:pop .34s cubic-bezier(.3,1.6,.5,1)}
+@keyframes pop{0%{scale:.4}55%{scale:1.22}100%{scale:1}}
+.glass.eat{transition:transform .16s ease, opacity .16s ease, scale .16s ease;opacity:0;scale:.35}
+.glass.fly{transition:transform .42s cubic-bezier(.5,-.2,.7,1), opacity .42s ease;opacity:0}
+.glass.pick{pointer-events:auto;cursor:pointer;animation:wig .5s ease-in-out infinite}
+@keyframes wig{0%,100%{rotate:-5deg}50%{rotate:5deg}}
+.glass.warn svg{filter:drop-shadow(0 0 7px rgba(217,75,69,.9))}
+
+/* 점수 팝업 */
+.fx{position:absolute;font-family:"Jua",sans-serif;font-size:17px;color:#fff;pointer-events:none;
+  text-shadow:0 2px 0 rgba(120,60,20,.6);animation:up .8s ease-out forwards;translate:-50% 0}
+@keyframes up{0%{opacity:0;transform:translateY(6px) scale(.7)}20%{opacity:1}
+  100%{opacity:0;transform:translateY(-42px) scale(1.1)}}
+
+/* 손님 도착 알림 */
+.bell{position:absolute;left:10px;bottom:10px;background:rgba(255,250,242,.92);border-radius:999px;
+  padding:5px 12px;font-size:12px;box-shadow:0 4px 10px rgba(110,70,30,.25);pointer-events:none}
+.bell b{font-family:"Jua",sans-serif;font-weight:400;font-size:15px;margin-left:2px}
+.bell.soon{background:#ffe1b0;color:#a3521a}
+.bell.ring{animation:ring .5s ease}
+@keyframes ring{0%,100%{rotate:0deg}25%{rotate:-9deg}75%{rotate:9deg}}
+
+/* 위험 표시 */
+.dangerbar{position:absolute;left:0;right:0;top:0;height:5px;background:var(--danger);opacity:0;
+  transition:opacity .2s}
+.dangerbar.on{opacity:.85;animation:blink 1s ease-in-out infinite}
+@keyframes blink{50%{opacity:.25}}
+
+/* ── 음료 도감 ─────────────────────────────── */
+.recipes{flex:0 0 auto;display:flex;gap:2px;align-items:flex-end;background:var(--paper);
+  border-radius:16px;padding:6px 8px;box-shadow:var(--shadow);overflow-x:auto;scrollbar-width:none}
+.recipes::-webkit-scrollbar{display:none}
+.rc{flex:1 0 auto;width:30px;text-align:center;opacity:.28;filter:grayscale(.9);transition:.25s}
+.rc.on{opacity:1;filter:none}
+.rc.now{transform:translateY(-3px) scale(1.12)}
+.rc svg{width:100%;height:auto;display:block}
+.rc i{font-style:normal;font-size:9px;color:var(--ink-2);font-family:"Jua",sans-serif}
+
+/* ── 버튼·모달 ─────────────────────────────── */
+.btn{border:none;border-radius:14px;padding:12px 18px;font-size:15px;cursor:pointer;
+  font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400;transition:transform .12s}
+.btn:active{transform:scale(.96)}
+.btn.primary{background:linear-gradient(180deg,#ffd071,var(--gold));color:#5d3c11;
+  box-shadow:0 5px 0 var(--gold-d)}
+.btn.ghost{background:#f1e6d6;color:var(--ink)}
+.btn.full{width:100%}
+.btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none}
+
+.veil{position:fixed;inset:0;background:rgba(74,53,39,.5);backdrop-filter:blur(3px);
+  display:none;align-items:center;justify-content:center;padding:18px;z-index:20}
+.veil.on{display:flex}
+.sheet{background:var(--paper);border-radius:22px;padding:20px;width:100%;max-width:360px;
+  box-shadow:0 20px 50px rgba(60,35,10,.4);max-height:88vh;overflow:auto}
+.sheet h2{margin:0 0 4px;font-family:"Jua",sans-serif;font-weight:400;font-size:22px}
+.sheet p.lead{margin:0 0 14px;font-size:13px;color:var(--ink-2)}
+.shopitem{display:flex;align-items:center;gap:10px;background:var(--paper-2);border-radius:14px;
+  padding:10px 12px;margin-bottom:8px}
+.shopitem .ic{font-size:22px}
+.shopitem .tx{flex:1;font-size:13px;line-height:1.35}
+.shopitem .tx b{display:block;font-family:"Jua",sans-serif;font-weight:400;font-size:15px}
+.price{font-family:"Jua",sans-serif;font-size:14px;background:#fff;border-radius:999px;padding:6px 10px;
+  border:2px solid var(--gold);white-space:nowrap}
+.row{display:flex;align-items:center;gap:8px;margin-bottom:9px;font-size:13px}
+.row label{flex:1}
+.row input[type=number]{width:74px;padding:7px 8px;border:2px solid #e6d5bd;border-radius:10px;
+  font-family:inherit;font-size:14px;text-align:right;background:#fff;color:var(--ink)}
+.row input:focus{outline:none;border-color:var(--gold)}
+.hint{font-size:11px;color:var(--ink-2);margin:2px 0 12px}
+.big{font-family:"Jua",sans-serif;font-size:38px;line-height:1;margin:6px 0 2px}
+.tut{display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;font-size:13px}
+/* 난이도 고르기 */
+.levels{display:flex;gap:7px;margin:14px 0 12px}
+.lv{flex:1;border:2px solid #e8d9c0;background:#fff;border-radius:14px;padding:9px 2px 8px;
+  cursor:pointer;font-family:inherit;color:var(--ink);transition:.15s;line-height:1.25}
+.lv b{display:block;font-family:"Jua",sans-serif;font-weight:400;font-size:16px}
+.lv i{font-style:normal;font-size:10px;color:var(--ink-2)}
+.lv.on{border-color:var(--gold);background:#fff5e0;box-shadow:0 3px 0 var(--gold-d)}
+.lv:focus-visible{outline:3px solid var(--mint);outline-offset:2px}
+
+.tut .n{width:24px;height:24px;border-radius:50%;background:var(--gold);color:#5d3c11;display:grid;
+  place-items:center;font-family:"Jua",sans-serif;flex:0 0 auto}
+.chain{position:absolute;left:50%;top:44%;translate:-50% -50%;font-family:"Jua",sans-serif;
+  font-size:34px;color:#fff;text-shadow:0 3px 0 var(--gold-d),0 0 14px rgba(255,180,60,.8);
+  opacity:0;pointer-events:none}
+.chain.on{animation:chainpop .7s ease-out}
+@keyframes chainpop{0%{opacity:0;scale:.5}30%{opacity:1;scale:1.15}100%{opacity:0;scale:1.3}}
+
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.05s !important}
+}
+@media (max-height:640px){
+  .brand p{display:none}
+  .recipes{padding:4px 6px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <img class="mascot" src="mascot.png" alt="다람쌤" onerror="this.style.display='none'" />
+    <div class="brand">
+      <h1>다람쌤 음료 카페</h1>
+      <p id="lvTxt">같은 잔끼리 붙이면 합쳐져요</p>
+    </div>
+    <div class="spacer"></div>
+    <div class="coin"><span class="c"></span><b class="num" id="coinTxt">0</b></div>
+    <button class="iconbtn" id="btnShop" title="상점 열기" aria-label="상점 열기">🛒</button>
+    <button class="iconbtn" id="btnCfg" title="선생님 설정" aria-label="선생님 설정">⚙️</button>
+  </header>
+
+  <div class="board" id="board" tabindex="0" aria-label="음료 놀이판. 좌우 방향키로 겨냥하고 스페이스로 발사">
+    <div class="garden"></div>
+    <svg class="flora" viewBox="0 0 400 150" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+      <defs>
+        <pattern id="balu" width="27" height="26" patternUnits="userSpaceOnUse">
+          <path d="M13.5 0 q4.5 4 4.5 13 q0 9 -4.5 13 q-4.5 -4 -4.5 -13 q0 -9 4.5 -13 Z" fill="#efe9e0"/>
+        </pattern>
+        <g id="dz">
+          <g fill="#ffffff">
+            <ellipse rx="2.8" ry="6.4" cy="-6"/><ellipse rx="2.8" ry="6.4" cy="-6" transform="rotate(45)"/>
+            <ellipse rx="2.8" ry="6.4" cy="-6" transform="rotate(90)"/><ellipse rx="2.8" ry="6.4" cy="-6" transform="rotate(135)"/>
+            <ellipse rx="2.8" ry="6.4" cy="-6" transform="rotate(180)"/><ellipse rx="2.8" ry="6.4" cy="-6" transform="rotate(225)"/>
+            <ellipse rx="2.8" ry="6.4" cy="-6" transform="rotate(270)"/><ellipse rx="2.8" ry="6.4" cy="-6" transform="rotate(315)"/>
+          </g>
+          <circle r="3.2" fill="#f7c948"/>
+        </g>
+        <g id="rs">
+          <circle r="8.6" fill="#f9b8cd"/><circle r="6.2" cx="1" cy="1" fill="#f18fb2"/>
+          <circle r="3.4" cx="-.5" cy="-.5" fill="#e5729b"/><circle r="1.5" cx="-1.5" cy="-1.5" fill="#fbd5e2"/>
+        </g>
+        <g id="tl">
+          <path d="M0 4 V20" stroke="#4e8b46" stroke-width="2.4" fill="none"/>
+          <path d="M0 19 q-10 -2 -12 -12 q10 1 12 9 Z" fill="#5aa04f"/>
+          <path d="M-7 2 q0 -12 7 -14 q7 2 7 14 q-7 6 -14 0 Z" fill="#f0709a"/>
+        </g>
+        <g id="lf">
+          <ellipse rx="15" ry="8.5" fill="#69a75d"/><ellipse rx="11" ry="6" cx="11" cy="-5" fill="#7cba6b"/>
+          <ellipse rx="10" ry="5.5" cx="-12" cy="-4" fill="#5c9852"/>
+        </g>
+      </defs>
+      <!-- 돌난간 -->
+      <rect x="0" y="2" width="400" height="7" rx="3" fill="#f4efe7"/>
+      <rect x="0" y="9" width="400" height="26" fill="url(#balu)"/>
+      <rect x="0" y="34" width="400" height="6" rx="3" fill="#e7dfd3"/>
+      <!-- 오른쪽 나무 아치 -->
+      <g fill="#e2a55f">
+        <rect x="360" y="0" width="13" height="150" rx="4"/><rect x="386" y="0" width="11" height="150" rx="4"/>
+        <rect x="352" y="30" width="48" height="8" rx="3" fill="#d1914c"/>
+        <rect x="352" y="72" width="48" height="8" rx="3" fill="#d1914c"/>
+        <rect x="352" y="114" width="48" height="8" rx="3" fill="#d1914c"/>
+      </g>
+      <g fill="#d1914c"><rect x="4" y="46" width="9" height="104" rx="4"/><rect x="0" y="70" width="34" height="7" rx="3"/></g>
+      <!-- 화단 -->
+      <g opacity=".95">
+        <use href="#lf" x="52" y="96"/><use href="#lf" x="168" y="88"/><use href="#lf" x="286" y="98"/>
+        <use href="#lf" x="112" y="118"/><use href="#lf" x="230" y="120"/><use href="#lf" x="336" y="126"/>
+        <use href="#lf" x="20" y="124"/>
+      </g>
+      <use href="#tl" x="36" y="82"/><use href="#tl" x="262" y="76"/><use href="#tl" x="150" y="112"/>
+      <use href="#rs" x="88" y="86"/><use href="#rs" x="196" y="104"/><use href="#rs" x="318" y="84"/>
+      <use href="#rs" x="248" y="132"/><use href="#rs" x="8" y="104"/>
+      <use href="#dz" x="66" y="110"/><use href="#dz" x="126" y="94"/><use href="#dz" x="182" y="128"/>
+      <use href="#dz" x="216" y="90"/><use href="#dz" x="296" y="120"/><use href="#dz" x="350" y="102"/>
+      <use href="#dz" x="102" y="134"/><use href="#dz" x="380" y="136"/><use href="#dz" x="44" y="140"/>
+    </svg>
+    <div class="dangerbar" id="dangerBar"></div>
+    <div class="wire">
+      <svg viewBox="0 0 300 26" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0 4 Q150 22 300 4" fill="none" stroke="#7a5a3a" stroke-width="2" opacity=".55"/>
+      </svg>
+    </div>
+    <div class="tickets" id="tickets"></div>
+    <div class="next"><div class="ring" id="nextArt"></div><span class="jua">다음</span></div>
+    <div class="table" id="tableEl"></div>
+    <div class="dash" id="dashEl"></div>
+    <div class="guide" id="guideEl"></div>
+    <div class="slotmark" id="slotMark"></div>
+    <div class="chain" id="chainFx"></div>
+    <div class="bell" id="bell">🔔 손님 <b class="num">5</b></div>
+  </div>
+
+  <div class="recipes" id="recipes"></div>
+</div>
+
+<!-- 시작·게임오버 -->
+<div class="veil on" id="veilStart">
+  <div class="sheet">
+    <h2>🥤 다람쌤 음료 카페</h2>
+    <p class="lead">테이블 위 음료를 합쳐 주문서를 완성하는 가게 놀이</p>
+    <div class="tut"><span class="n">1</span><div>테이블 아래에서 <b>손가락으로 밀어</b> 넣을 자리를 고르고, 손을 떼면 잔이 올라갑니다.</div></div>
+    <div class="tut"><span class="n">2</span><div>같은 음료가 <b>2잔 이상 나란히</b> 붙으면 한 단계 위 음료로 합쳐집니다. 연쇄로 이어지면 보너스!</div></div>
+    <div class="tut"><span class="n">3</span><div>빨랫줄의 <b>주문서</b>와 같은 음료를 만들면 배달되고 코인을 받습니다.</div></div>
+    <div class="tut"><span class="n">4</span><div>테이블이 가득 차면 끝. 코인은 <b>상점</b>에서 도우미 기능에 씁니다.</div></div>
+    <div class="levels" data-lv-pick></div>
+    <button class="btn primary full" id="btnStart">가게 문 열기</button>
+  </div>
+</div>
+
+<div class="veil" id="veilOver">
+  <div class="sheet" style="text-align:center">
+    <h2>영업 종료!</h2>
+    <p class="lead">테이블이 가득 찼습니다</p>
+    <div class="big num" id="overCoin">0</div>
+    <p class="lead">모은 코인</p>
+    <p style="font-size:13px;margin:0 0 4px">가장 높이 만든 음료 <b id="overTop">-</b></p>
+    <p style="font-size:13px;margin:0 0 4px;color:var(--ink-2)">최고 기록 <b class="num" id="overBest">0</b> 코인</p>
+    <div class="levels" data-lv-pick></div>
+    <button class="btn primary full" id="btnAgain">다시 열기</button>
+  </div>
+</div>
+
+<!-- 상점 -->
+<div class="veil" id="veilShop">
+  <div class="sheet">
+    <h2>🛒 카페 상점</h2>
+    <p class="lead">코인으로 도우미 기능을 삽니다</p>
+    <div class="shopitem"><span class="ic">🔄</span>
+      <span class="tx"><b>잔 바꾸기</b>지금 잔과 다음 잔을 맞바꿉니다</span>
+      <button class="btn price" data-buy="swap">30</button></div>
+    <div class="shopitem"><span class="ic">🗑️</span>
+      <span class="tx"><b>잔 버리기</b>지금 잔을 버리고 새로 뽑습니다</span>
+      <button class="btn price" data-buy="trash">60</button></div>
+    <div class="shopitem"><span class="ic">💣</span>
+      <span class="tx"><b>한 잔 없애기</b>테이블의 잔 하나를 골라 치웁니다</span>
+      <button class="btn price" data-buy="bomb">150</button></div>
+    <div class="shopitem"><span class="ic">🧾</span>
+      <span class="tx"><b>주문서 바꾸기</b>주문서 두 장을 새로 받습니다</span>
+      <button class="btn price" data-buy="order">90</button></div>
+    <button class="btn ghost full" data-close>닫기</button>
+  </div>
+</div>
+
+<!-- 선생님 설정 -->
+<div class="veil" id="veilCfg">
+  <div class="sheet">
+    <h2>⚙️ 선생님 설정</h2>
+    <p class="lead">난이도와 상점 값을 학급에 맞게 바꿉니다</p>
+    <div class="row"><label for="cSlots">테이블 최대 잔 수</label><input type="number" id="cSlots" min="5" max="10" /></div>
+    <div class="row"><label for="cSpawn">새로 나오는 최고 등급</label><input type="number" id="cSpawn" min="1" max="6" /></div>
+    <div class="row"><label for="cReward">주문 보상 배율</label><input type="number" id="cReward" min="0.2" max="5" step="0.1" /></div>
+    <div class="row"><label for="cMerge">합칠 때 코인(등급×)</label><input type="number" id="cMerge" min="0" max="20" /></div>
+    <div class="row"><label for="cPush">손님이 오는 간격(발사 횟수)</label><input type="number" id="cPush" min="2" max="30" /></div>
+    <p class="hint">칸 수·손님 간격이 클수록 쉬워집니다. 저장하면 새 판부터 적용됩니다.</p>
+    <div class="row"><label for="pSwap">잔 바꾸기 값</label><input type="number" id="pSwap" min="0" max="9999" /></div>
+    <div class="row"><label for="pTrash">잔 버리기 값</label><input type="number" id="pTrash" min="0" max="9999" /></div>
+    <div class="row"><label for="pBomb">한 잔 없애기 값</label><input type="number" id="pBomb" min="0" max="9999" /></div>
+    <div class="row"><label for="pOrder">주문서 바꾸기 값</label><input type="number" id="pOrder" min="0" max="9999" /></div>
+    <div class="row"><label for="cSound">소리</label><input type="checkbox" id="cSound" style="width:20px;height:20px" /></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn ghost" style="flex:1" data-close>닫기</button>
+      <button class="btn ghost" style="flex:1" id="cfgReset">기본값</button>
+      <button class="btn primary" style="flex:2" id="cfgSave">저장하고 새 판</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════
+   1. 설정값 (규칙 수치는 모두 여기 + 선생님 설정에 모음)
+   ═══════════════════════════════════════════ */
+const CFG_KEY = 'drinkmerge.cfg.v1';
+const BEST_KEY = 'drinkmerge.best.v1';
+const DEFAULT_CFG = {
+  slots: 8,        // 테이블에 놓을 수 있는 최대 잔 수
+  spawnMax: 3,     // 새로 뽑히는 음료의 최고 등급
+  reward: 1.0,     // 주문 보상 배율
+  mergeCoin: 3,    // 합칠 때 코인 = 등급 × 이 값
+  pushEvery: 6,    // 몇 번 발사마다 손님이 잔을 하나 놓고 가는지
+  priceSwap: 30, priceTrash: 60, priceBomb: 150, priceOrder: 90,
+  sound: true
+};
+/* 난이도 프리셋 — 칸 수·등장 등급·손님 간격·보상만 바꿈 */
+const LV_KEY = 'drinkmerge.level.v1';
+const LEVELS = {
+  easy  :{label:'쉬움', tip:'여유롭게',      slots:10, spawnMax:3, pushEvery:9, reward:1.2},
+  normal:{label:'보통', tip:'기본',          slots:8,  spawnMax:3, pushEvery:6, reward:1.0},
+  hard  :{label:'도전', tip:'빨리 조여옴',   slots:8,  spawnMax:4, pushEvery:4, reward:0.9}
+};
+let level = 'normal';
+try{ const s=localStorage.getItem(LV_KEY); if(s && (LEVELS[s]||s==='custom')) level=s; }catch(e){}
+
+let cfg = loadCfg();
+function loadCfg(){
+  try{ return Object.assign({}, DEFAULT_CFG, JSON.parse(localStorage.getItem(CFG_KEY)||'{}')); }
+  catch(e){ return Object.assign({}, DEFAULT_CFG); }
+}
+function saveCfg(){ try{ localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
+function saveLevel(){ try{ localStorage.setItem(LV_KEY, level); }catch(e){} }
+
+/* 난이도 적용 — 프리셋 값만 덮어쓰고 상점 가격·소리는 그대로 둠 */
+function applyLevel(k, restart){
+  level = k;
+  if(LEVELS[k]) Object.assign(cfg, {slots:LEVELS[k].slots, spawnMax:LEVELS[k].spawnMax,
+    pushEvery:LEVELS[k].pushEvery, reward:LEVELS[k].reward});
+  saveCfg(); saveLevel(); paintLevels(); showLevel(); updateBell();
+  if(restart) reset();
+}
+function levelName(){ return LEVELS[level] ? LEVELS[level].label : '직접 설정'; }
+function paintLevels(){
+  document.querySelectorAll('[data-lv-pick]').forEach(box=>{
+    box.innerHTML = Object.entries(LEVELS).map(([k,v])=>
+      `<button class="lv${k===level?' on':''}" data-lv="${k}" aria-pressed="${k===level}">
+         <b>${v.label}</b><i>${v.tip}</i></button>`).join('')
+      + (LEVELS[level] ? '' : `<button class="lv on" data-lv="custom" aria-pressed="true"><b>직접</b><i>선생님 설정</i></button>`);
+  });
+}
+document.addEventListener('click', e=>{
+  const b = e.target.closest('.lv'); if(!b) return;
+  if(b.dataset.lv==='custom') return;
+  applyLevel(b.dataset.lv, false);
+});
+function showLevel(){
+  const p = document.getElementById('lvTxt');
+  if(p) p.textContent = levelName()+' 난이도';
+}
+
+/* ═══════════════════════════════════════════
+   2. 음료 도감 (10단계)
+   ═══════════════════════════════════════════ */
+const MAX_TIER = 10;
+const DRINKS = [null,
+ {n:'소다수',       g:'short', c:['#a9e6ff','#4fc0ef'], ice:0, straw:null, garnish:null},
+ {n:'복숭아 아이스티', g:'short', c:['#f0b273','#c1712f'], ice:2, straw:null, garnish:null},
+ {n:'오렌지 주스',   g:'cup',   c:['#ffd166','#f09a1e'], ice:0, straw:null, garnish:null},
+ {n:'포도 에이드',   g:'tall',  c:['#c9a2f5','#8a4fd6'], ice:3, straw:'plain', garnish:null},
+ {n:'사탕 애플 에이드',g:'cup',  c:['#ffc85c','#ef8f16'], ice:0, straw:'candy', garnish:'apple'},
+ {n:'콜라 모히또',   g:'tall',  c:['#a4522c','#5b220f'], ice:3, straw:null, garnish:'citrusmint'},
+ {n:'블루베리 모히또',g:'tall',  c:['#b98cf0','#6d33c4'], ice:3, straw:'plain', garnish:'mint'},
+ {n:'핑크 라즈베리', g:'bowl',  c:['#ffb3d1','#ef6ba4'], ice:4, straw:null, garnish:'lemon'},
+ {n:'트로피컬 선셋', g:'bowl',  c:['#ffd36a','#f2762f'], ice:2, straw:'plain', garnish:'lemon'},
+ {n:'딸기 스무디',   g:'cup',   c:['#ff8a95','#d92b4b'], ice:0, straw:'plain', garnish:'berry'}
+];
+const SHAPES = {
+  short:{d:'M27 47 L31 106 Q32 113 40 113 L60 113 Q68 113 69 106 L73 47 Z', top:47, rx:23},
+  cup  :{d:'M25 42 L30 104 Q31 112 40 112 L60 112 Q69 112 70 104 L75 42 Z', top:42, rx:25},
+  tall :{d:'M29 26 L33 106 Q34 113 41 113 L59 113 Q66 113 67 106 L71 26 Z', top:26, rx:21},
+  bowl :{d:'M21 50 Q21 112 50 112 Q79 112 79 50 Z',                        top:50, rx:29}
+};
+const svgCache = new Map();
+function drinkSVG(t){
+  if(svgCache.has(t)) return svgCache.get(t);
+  const d = DRINKS[t], s = SHAPES[d.g], id = 'g'+t;
+  const liqTop = s.top + 7;
+  let inner = '';
+  // 음료
+  inner += `<rect x="10" y="${liqTop}" width="80" height="${120-liqTop}" fill="url(#lq${id})"/>`;
+  // 얼음
+  const icePos = [[40,liqTop+13,-16],[60,liqTop+9,20],[50,liqTop+31,8],[38,liqTop+34,-24]];
+  for(let i=0;i<d.ice;i++){ const [x,y,a]=icePos[i];
+    inner += `<rect x="-10" y="-10" width="20" height="20" rx="6" fill="#ffffff" fill-opacity=".45"
+      stroke="#ffffff" stroke-opacity=".8" stroke-width="2.4" transform="translate(${x} ${y}) rotate(${a})"/>`; }
+  // 잔 안쪽 하이라이트
+  inner += `<path d="M${50-s.rx+7} ${s.top+10} L${50-s.rx+11} 100" stroke="#fff" stroke-opacity=".55"
+    stroke-width="4" stroke-linecap="round" fill="none"/>`;
+
+  let outer = '';
+  // 빨대
+  if(d.straw==='plain')
+    outer += `<rect x="-4.5" y="-46" width="9" height="66" rx="4.5" fill="#ffffff"
+      stroke="#dfe9ef" stroke-width="1.5" transform="translate(64 ${s.top+22}) rotate(17)"/>`;
+  if(d.straw==='candy')
+    outer += `<g transform="translate(38 ${s.top+6}) rotate(-16)">
+      <rect x="-5" y="-34" width="10" height="52" rx="5" fill="#fff8ec" stroke="#e9d7bd" stroke-width="1.4"/>
+      <path d="M-5 -26 L5 -31 M-5 -17 L5 -22 M-5 -8 L5 -13 M-5 1 L5 -4" stroke="#ef5350" stroke-width="3.4" stroke-linecap="round"/>
+      <path d="M-5 10 L5 5" stroke="#ffc107" stroke-width="3.4" stroke-linecap="round"/></g>`;
+  // 장식
+  const cit = (x,y,r,c1,c2)=>`<g transform="translate(${x} ${y})">
+      <circle r="${r}" fill="${c1}" stroke="#fff" stroke-width="2"/>
+      <circle r="${r*0.62}" fill="${c2}"/>
+      <path d="M0 ${-r*.6} V${r*.6} M${-r*.6} 0 H${r*.6} M${-r*.45} ${-r*.45} L${r*.45} ${r*.45}
+        M${r*.45} ${-r*.45} L${-r*.45} ${r*.45}" stroke="#fff" stroke-width="1.6" stroke-opacity=".9"/></g>`;
+  const mint = (x,y)=>`<g transform="translate(${x} ${y})">
+      <ellipse rx="8" ry="5" fill="#5cb85c" transform="rotate(-28) translate(-6 -2)"/>
+      <ellipse rx="9" ry="5.5" fill="#4a9d4a" transform="rotate(22) translate(6 -3)"/></g>`;
+  if(d.garnish==='apple')
+    outer += `<g transform="translate(72 ${s.top+2})"><circle r="12" fill="#f2544f" stroke="#fff" stroke-width="2.5"/>
+      <path d="M-3 -12 q4 -7 9 -6" stroke="#5a8b3a" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <ellipse rx="6" ry="3.4" cx="2" cy="1" fill="#ffe0c9"/></g>`;
+  if(d.garnish==='lemon') outer += cit(70, s.top+1, 12, '#ffb23f', '#ffd98a');
+  if(d.garnish==='citrusmint') outer += cit(62, s.top+1, 11, '#ff9f2f', '#ffd188') + mint(44, s.top-3)
+      + `<circle cx="34" cy="${s.top+3}" r="6" fill="#c9364e" stroke="#fff" stroke-width="1.6"/>`;
+  if(d.garnish==='mint') outer += mint(52, s.top-4);
+  if(d.garnish==='berry')
+    outer += `<g transform="translate(70 ${s.top}) rotate(12)">
+      <path d="M0 -7 C7 -7 11 -2 11 3 C11 11 4 17 0 20 C-4 17 -11 11 -11 3 C-11 -2 -7 -7 0 -7 Z" fill="#e63950"/>
+      <path d="M-8 -7 h16 l-8 5 Z" fill="#4a9d4a"/>
+      <circle cx="-4" cy="3" r="1.3" fill="#fff"/><circle cx="4" cy="6" r="1.3" fill="#fff"/>
+      <circle cx="0" cy="12" r="1.3" fill="#fff"/></g>`;
+
+  const svg = `<svg viewBox="0 0 100 122" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${d.n}">
+   <defs>
+    <linearGradient id="lq${id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${d.c[0]}"/><stop offset="1" stop-color="${d.c[1]}"/></linearGradient>
+    <clipPath id="cl${id}"><path d="${s.d}"/></clipPath>
+   </defs>
+   <path d="${s.d}" fill="#ffffff" fill-opacity=".22"/>
+   <g clip-path="url(#cl${id})">${inner}</g>
+   <path d="${s.d}" fill="none" stroke="#ffffff" stroke-opacity=".95" stroke-width="4" stroke-linejoin="round"/>
+   <ellipse cx="50" cy="${s.top}" rx="${s.rx}" ry="${Math.round(s.rx*0.26)}" fill="none"
+      stroke="#ffffff" stroke-width="4"/>
+   ${outer}
+  </svg>`;
+  svgCache.set(t, svg);
+  return svg;
+}
+
+/* ═══════════════════════════════════════════
+   3. 상태
+   ═══════════════════════════════════════════ */
+const board = document.getElementById('board');
+const guideEl = document.getElementById('guideEl');
+const slotMark = document.getElementById('slotMark');
+const dashEl = document.getElementById('dashEl');
+const tableEl = document.getElementById('tableEl');
+const ticketsEl = document.getElementById('tickets');
+const nextArt = document.getElementById('nextArt');
+const coinTxt = document.getElementById('coinTxt');
+const dangerBar = document.getElementById('dangerBar');
+const chainFx = document.getElementById('chainFx');
+const bell = document.getElementById('bell');
+
+let row = [];          // {id, tier, el}
+let cur = 1, nxt = 1;  // 지금 잔 / 다음 잔
+let curEl = null;
+let coins = 0, topTier = 1, orders = [], aimK = 0, shots = 0;
+let busy = false, playing = false, bombMode = false, uid = 0;
+let GW = 46, SLOT = 48, ROW_Y = 0, LAUNCH_Y = 0, CX = 0;
+
+const sleep = ms => new Promise(r=>setTimeout(r, ms));
+const rnd = n => Math.floor(Math.random()*n);
+const clamp = (v,a,b)=> v<a?a : v>b?b : v;
+
+/* ── 크기 계산 ─────────────────────────────── */
+function measure(){
+  const w = board.clientWidth, h = board.clientHeight;
+  SLOT = (w*0.84)/(cfg.slots+1);   // 테이블 상판 안쪽에 들어가도록
+  GW = SLOT*1.36;                  // 잔 그림은 뷰박스 안쪽만 차지하므로 칸보다 크게 그림
+  board.style.setProperty('--gw', GW+'px');
+  board.style.setProperty('--slot', SLOT+'px');
+  CX = w/2;
+  ROW_Y = h*0.30 + GW*0.42;      // 테이블 윗변에 걸치도록
+  LAUNCH_Y = h*0.78;
+  dashEl.style.top = (LAUNCH_Y + GW*0.42)+'px';
+  guideEl.style.top = (ROW_Y + GW*0.4)+'px';
+  guideEl.style.height = Math.max(10, LAUNCH_Y - ROW_Y - GW*0.5)+'px';
+  slotMark.style.top = (ROW_Y + GW*0.66)+'px';   // 잔이 끼워질 자리를 상판 위에 표시
+  layout(); placeCur(); updateGuide();
+}
+const glassH = ()=> GW*1.22;
+function xOf(i, len){ return CX + (i - (len-1)/2)*SLOT; }
+function place(el, x, y){ el.style.transform = `translate(${x-GW/2}px, ${y-glassH()/2}px)`; }
+function layout(){ row.forEach((g,i)=> place(g.el, xOf(i,row.length), ROW_Y)); }
+
+/* ── 잔 만들기 ─────────────────────────────── */
+function makeGlass(tier){
+  const el = document.createElement('div');
+  el.className = 'glass'; el.innerHTML = drinkSVG(tier);
+  board.appendChild(el);
+  return {id:++uid, tier, el};
+}
+
+/* ═══════════════════════════════════════════
+   4. 주문서
+   ═══════════════════════════════════════════ */
+function rewardOf(t){ return Math.round((40 + t*t*8) * cfg.reward); }
+/* 주문 등급 — 지금 만들 수 있는 최고 등급보다 한두 단계 위로만 냄.
+   이미 만들 수 있는 등급을 주문에 넣으면 만들자마자 배달돼 버려서,
+   같은 등급 두 잔을 나란히 모을 수 없고 그 위 등급이 영영 안 나옴. */
+function newOrderTier(){
+  const base = Math.max(topTier, clamp(cfg.spawnMax,1,MAX_TIER));  // 지금 판에서 이미 나오는 최고 등급
+  const lo = clamp(base+1, 2, MAX_TIER);
+  const hi = clamp(base+2, lo, MAX_TIER);
+  let t, guard=0;
+  do{ t = lo + rnd(hi-lo+1); guard++; }while(orders.some(o=>o.tier===t) && guard<12);
+  return t;
+}
+function drawTickets(){
+  ticketsEl.innerHTML = orders.map(o=>`
+    <div class="ticket" data-t="${o.tier}">
+      <span class="peg"></span><span class="head">TO-GO ORDERS</span>
+      <div class="art">${drinkSVG(o.tier)}</div>
+      <div class="total"><span>TOTAL</span><b class="num">${o.reward}</b></div>
+      <div class="bars"></div>
+    </div>`).join('');
+}
+function refillOrders(){
+  while(orders.length<2){ const t=newOrderTier(); orders.push({tier:t, reward:rewardOf(t)}); }
+  drawTickets();
+}
+
+/* ═══════════════════════════════════════════
+   5. 소리
+   ═══════════════════════════════════════════ */
+let actx=null;
+function beep(freq, dur=.12, type='sine', vol=.14){
+  if(!cfg.sound) return;
+  try{
+    actx = actx || new (window.AudioContext||window.webkitAudioContext)();
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type=type; o.frequency.value=freq;
+    g.gain.setValueAtTime(vol, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.0001, actx.currentTime+dur);
+    o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime+dur);
+  }catch(e){}
+}
+
+/* ═══════════════════════════════════════════
+   6. 조준 · 발사
+   ═══════════════════════════════════════════ */
+function placeCur(){
+  if(!curEl) return;
+  place(curEl.el, xOf(aimK, row.length+1), LAUNCH_Y);
+}
+function updateGuide(){
+  const x = xOf(aimK, row.length+1);
+  guideEl.style.left = (x-2.5)+'px';
+  slotMark.style.transform = `translateX(${x-SLOT/2}px)`;
+}
+function setAim(px){
+  const n = row.length;
+  aimK = clamp(Math.round((px - CX)/SLOT + n/2), 0, n);
+  placeCur(); updateGuide();
+}
+function aimOn(on){ guideEl.classList.toggle('on', on); slotMark.classList.toggle('on', on); }
+
+board.addEventListener('pointerdown', e=>{
+  if(bombMode || !playing || busy) return;
+  board.setPointerCapture(e.pointerId);
+  aimOn(true); setAim(e.clientX - board.getBoundingClientRect().left);
+});
+board.addEventListener('pointermove', e=>{
+  if(!guideEl.classList.contains('on')) return;
+  setAim(e.clientX - board.getBoundingClientRect().left);
+});
+board.addEventListener('pointerup', e=>{
+  if(!guideEl.classList.contains('on')) return;
+  aimOn(false); shoot();
+});
+board.addEventListener('pointercancel', ()=> aimOn(false));
+board.addEventListener('keydown', e=>{
+  if(!playing || busy) return;
+  if(e.key==='ArrowLeft'){ aimK=clamp(aimK-1,0,row.length); placeCur(); updateGuide(); aimOn(true); e.preventDefault(); }
+  if(e.key==='ArrowRight'){ aimK=clamp(aimK+1,0,row.length); placeCur(); updateGuide(); aimOn(true); e.preventDefault(); }
+  if(e.key===' '||e.key==='Enter'){ aimOn(false); shoot(); e.preventDefault(); }
+});
+
+async function shoot(){
+  if(busy || !playing || !curEl) return;
+  busy = true;
+  const g = curEl; curEl = null;
+  beep(520,.09,'triangle');
+  row.splice(aimK, 0, g);
+  layout();                       // 자리로 날아감
+  await sleep(190);
+  await resolve(aimK);
+  if(row.length > cfg.slots){ gameOver(); return; }
+
+  shots++;
+  if(shots % cfg.pushEvery === 0){ await guest(); }
+  updateBell();
+  if(row.length > cfg.slots){ gameOver(); return; }
+  spawn(); busy = false;
+}
+
+/* 손님이 마시던 잔을 테이블에 놓고 감 — 판이 조여드는 압박 */
+async function guest(){
+  const side = Math.random()<.5 ? 0 : row.length;
+  const g = makeGlass(pick());
+  place(g.el, xOf(side, row.length+1), ROW_Y - board.clientHeight*0.16);
+  g.el.style.opacity = '0';
+  bell.classList.add('ring');
+  await sleep(30);
+  row.splice(side, 0, g);
+  g.el.style.opacity = '1';
+  layout(); beep(400,.12,'sine',.1);
+  await sleep(230);
+  bell.classList.remove('ring');
+  await resolve(side);
+}
+function updateBell(){
+  const left = cfg.pushEvery - (shots % cfg.pushEvery);
+  bell.innerHTML = `🔔 손님 <b class="num">${left}</b>`;
+  bell.classList.toggle('soon', left<=1);
+}
+
+/* ═══════════════════════════════════════════
+   7. 합치기 · 배달
+   ═══════════════════════════════════════════ */
+function fx(text, x, y, color){
+  const d=document.createElement('div'); d.className='fx'; d.textContent=text;
+  if(color) d.style.color=color;
+  d.style.left=x+'px'; d.style.top=y+'px';
+  board.appendChild(d); setTimeout(()=>d.remove(), 850);
+}
+async function resolve(idx){
+  let chain = 0;
+  while(true){
+    const g = row[idx]; if(!g) break;
+    // ① 같은 등급 뭉치 먼저 합침 (배달보다 합치기가 우선)
+    let l=idx, r=idx;
+    while(l-1>=0 && row[l-1].tier===g.tier) l--;
+    while(r+1<row.length && row[r+1].tier===g.tier) r++;
+    if(r-l < 1){
+      // ② 합칠 짝이 없을 때만 주문서와 맞춰 배달
+      const oi = orders.findIndex(o=> o.tier===g.tier);
+      if(oi<0) break;
+      await deliver(idx, oi); idx = clamp(idx-1, 0, row.length-1);
+      if(row.length===0) break; chain++; continue;
+    }
+    chain++;
+    const tier = g.tier, cnt = r-l+1, tx = xOf(l + (cnt-1)/2, row.length);
+    const winner = row[l];
+    for(let i=l;i<=r;i++){ if(row[i]!==winner){ place(row[i].el, tx, ROW_Y); row[i].el.classList.add('eat'); } }
+    beep(300+tier*45, .12, 'square', .12);
+    await sleep(140);
+    for(let i=l;i<=r;i++) if(row[i]!==winner) row[i].el.remove();
+    row.splice(l, cnt, winner);
+
+    if(tier===MAX_TIER){            // 최고 등급끼리 → 대박 보너스
+      const bonus = Math.round(1500*cfg.reward);
+      addCoin(bonus); fx('+'+bonus, tx, ROW_Y-30, '#fff2b8');
+      winner.el.classList.add('fly'); place(winner.el, tx, -100);
+      await sleep(320); winner.el.remove(); row.splice(l,1);
+      idx = clamp(l-1, 0, row.length-1); if(row.length===0) break; continue;
+    }
+    winner.tier = tier+1;
+    winner.el.innerHTML = drinkSVG(winner.tier);
+    winner.el.classList.remove('pop'); void winner.el.offsetWidth; winner.el.classList.add('pop');
+    topTier = Math.max(topTier, winner.tier);
+    const gain = winner.tier*cfg.mergeCoin*(chain>1?chain:1);
+    addCoin(gain); fx('+'+gain, tx, ROW_Y-26);
+    layout(); markRecipes();
+    if(chain>=3){ chainFx.textContent = chain+' 연쇄!'; chainFx.classList.remove('on');
+      void chainFx.offsetWidth; chainFx.classList.add('on'); beep(880,.18,'triangle',.16); }
+    await sleep(190);
+    idx = l;
+  }
+  layout(); dangerCheck();
+}
+async function deliver(i, oi){
+  const g = row[i], o = orders[oi];
+  const t = ticketsEl.children[oi];
+  if(t) t.classList.add('done');
+  const tr = t ? t.getBoundingClientRect() : null, br = board.getBoundingClientRect();
+  g.el.classList.add('fly');
+  place(g.el, tr ? (tr.left-br.left+tr.width/2) : CX, tr ? (tr.top-br.top+20) : 20);
+  addCoin(o.reward); fx('+'+o.reward, xOf(i,row.length), ROW_Y-30, '#ffe9a8');
+  beep(660,.1,'triangle'); setTimeout(()=>beep(990,.16,'triangle'), 90);
+  row.splice(i,1); orders.splice(oi,1);
+  layout(); await sleep(360);
+  g.el.remove(); refillOrders();
+}
+function addCoin(n){ coins += n; coinTxt.textContent = coins; }
+
+function dangerCheck(){
+  const near = row.length >= cfg.slots;
+  dangerBar.classList.toggle('on', near);
+  row.forEach((g,i)=> g.el.classList.toggle('warn', near && (i===0 || i===row.length-1)));
+}
+
+/* ═══════════════════════════════════════════
+   8. 잔 뽑기 · 도감
+   ═══════════════════════════════════════════ */
+function pick(){ return 1 + rnd(clamp(cfg.spawnMax,1,MAX_TIER)); }
+function spawn(){
+  cur = nxt; nxt = pick();
+  curEl = makeGlass(cur);
+  curEl.el.classList.add('pop');
+  aimK = clamp(aimK, 0, row.length);
+  placeCur(); updateGuide();
+  nextArt.innerHTML = drinkSVG(nxt);
+}
+function buildRecipes(){
+  const box = document.getElementById('recipes');
+  box.innerHTML = '';
+  for(let t=1;t<=MAX_TIER;t++){
+    const d=document.createElement('div'); d.className='rc'; d.dataset.t=t;
+    d.innerHTML = drinkSVG(t) + `<i>${t}</i>`;
+    d.title = DRINKS[t].n;
+    box.appendChild(d);
+  }
+}
+function markRecipes(){
+  document.querySelectorAll('.rc').forEach(el=>{
+    const t = +el.dataset.t;
+    el.classList.toggle('on', t<=topTier);
+    el.classList.toggle('now', t===topTier);
+  });
+}
+
+/* ═══════════════════════════════════════════
+   9. 판 시작 · 종료
+   ═══════════════════════════════════════════ */
+function reset(){
+  row.forEach(g=>g.el.remove()); row=[];
+  if(curEl){ curEl.el.remove(); curEl=null; }
+  coins=0; topTier=1; orders=[]; aimK=0; shots=0; busy=false; bombMode=false;
+  coinTxt.textContent='0'; updateBell();
+  dangerBar.classList.remove('on');
+  measure();
+  // 처음 몇 잔은 붙어서 바로 합쳐지지 않도록 놓음
+  const start = Math.max(2, Math.min(3, cfg.slots-3));
+  for(let i=0;i<start;i++){
+    let t, guard=0;
+    do{ t=pick(); guard++; }while(row.length && row[row.length-1].tier===t && guard<10);
+    row.push(makeGlass(t));
+  }
+  layout(); refillOrders(); markRecipes();
+  nxt = pick(); spawn();
+  playing = true; board.focus({preventScroll:true});
+}
+function gameOver(){
+  playing=false; busy=false;
+  beep(220,.3,'sawtooth',.12);
+  const best = Math.max(coins, +(localStorage.getItem(BEST_KEY)||0));
+  try{ localStorage.setItem(BEST_KEY, best); }catch(e){}
+  document.getElementById('overCoin').textContent = coins;
+  document.getElementById('overTop').textContent = DRINKS[topTier].n;
+  document.getElementById('overBest').textContent = best;
+  document.getElementById('veilOver').classList.add('on');
+}
+
+/* ═══════════════════════════════════════════
+   10. 상점 · 설정 · 버튼
+   ═══════════════════════════════════════════ */
+const veil = id => document.getElementById(id);
+function openShop(){
+  document.querySelectorAll('[data-buy]').forEach(b=>{
+    const p = priceOf(b.dataset.buy);
+    b.textContent = p; b.disabled = coins < p || !playing;
+  });
+  veil('veilShop').classList.add('on');
+}
+function priceOf(k){ return {swap:cfg.priceSwap, trash:cfg.priceTrash, bomb:cfg.priceBomb, order:cfg.priceOrder}[k]; }
+document.querySelectorAll('[data-buy]').forEach(b=> b.addEventListener('click', ()=>{
+  const k=b.dataset.buy, p=priceOf(k);
+  if(coins<p || busy || !playing) return;
+  addCoin(-p); beep(760,.1,'triangle');
+  veil('veilShop').classList.remove('on');
+  if(k==='swap'){ const a=cur; cur=nxt; nxt=a;
+    curEl.tier=cur; curEl.el.innerHTML=drinkSVG(cur); nextArt.innerHTML=drinkSVG(nxt); }
+  if(k==='trash'){ curEl.el.remove(); cur=nxt; nxt=pick();
+    curEl=makeGlass(cur); curEl.el.classList.add('pop'); placeCur(); nextArt.innerHTML=drinkSVG(nxt); }
+  if(k==='order'){ orders=[]; refillOrders(); }
+  if(k==='bomb'){ startBomb(); }
+}));
+function startBomb(){
+  bombMode = true; aimOn(false);
+  row.forEach((g,i)=>{ g.el.classList.add('pick');
+    g.el.onclick = async ()=>{
+      if(!bombMode) return;
+      bombMode=false; busy=true;
+      row.forEach(x=>{ x.el.classList.remove('pick'); x.el.onclick=null; });
+      const idx = row.indexOf(g);
+      g.el.classList.add('eat'); beep(180,.18,'square',.12);
+      await sleep(160); g.el.remove(); row.splice(idx,1);
+      layout(); await sleep(120);
+      if(row.length) await resolve(clamp(idx,0,row.length-1));
+      dangerCheck(); busy=false;
+    };
+  });
+}
+document.getElementById('btnShop').onclick = openShop;
+document.querySelectorAll('[data-close]').forEach(b=> b.onclick = ()=> b.closest('.veil').classList.remove('on'));
+document.getElementById('btnStart').onclick = ()=>{ veil('veilStart').classList.remove('on'); reset(); };
+document.getElementById('btnAgain').onclick = ()=>{ veil('veilOver').classList.remove('on'); reset(); };
+
+const cfgFields = {cSlots:'slots', cSpawn:'spawnMax', cReward:'reward', cMerge:'mergeCoin',
+  cPush:'pushEvery', pSwap:'priceSwap', pTrash:'priceTrash', pBomb:'priceBomb', pOrder:'priceOrder'};
+document.getElementById('btnCfg').onclick = ()=>{
+  for(const [id,key] of Object.entries(cfgFields)) document.getElementById(id).value = cfg[key];
+  document.getElementById('cSound').checked = !!cfg.sound;
+  veil('veilCfg').classList.add('on');
+};
+document.getElementById('cfgReset').onclick = ()=>{
+  for(const [id,key] of Object.entries(cfgFields)) document.getElementById(id).value = DEFAULT_CFG[key];
+  document.getElementById('cSound').checked = DEFAULT_CFG.sound;
+};
+document.getElementById('cfgSave').onclick = ()=>{
+  for(const [id,key] of Object.entries(cfgFields)){
+    const v = parseFloat(document.getElementById(id).value);
+    if(!isNaN(v)) cfg[key] = v;
+  }
+  cfg.slots = clamp(Math.round(cfg.slots), 5, 10);
+  cfg.spawnMax = clamp(Math.round(cfg.spawnMax), 1, 6);
+  cfg.pushEvery = clamp(Math.round(cfg.pushEvery), 2, 30);
+  cfg.sound = document.getElementById('cSound').checked;
+  level = 'custom';                      // 값을 직접 고치면 '직접 설정'이 됨
+  saveCfg(); saveLevel(); paintLevels(); showLevel();
+  veil('veilCfg').classList.remove('on');
+  veil('veilOver').classList.remove('on');
+  reset();
+};
+
+/* ═══════════════════════════════════════════
+   11. 시작
+   ═══════════════════════════════════════════ */
+buildRecipes(); markRecipes(); updateBell();
+applyLevel(level, false);   // 저장된 난이도(없으면 보통)를 설정에 반영
+nextArt.innerHTML = drinkSVG(2);
+orders = [{tier:4, reward:rewardOf(4)},{tier:5, reward:rewardOf(5)}]; drawTickets();
+/* 글꼴 로딩·화면 회전으로 판 크기가 바뀌면 항상 다시 계산 (잔 위치 어긋남 방지) */
+new ResizeObserver(()=> measure()).observe(board);
+window.addEventListener('resize', measure);
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
+</script>
+</body>
+</html>
