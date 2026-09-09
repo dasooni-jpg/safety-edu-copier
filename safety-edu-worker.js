@@ -389,6 +389,16 @@ const VOTE_HTML = `<!doctype html>
   .err.on{display:block}
   .foot{color:var(--gray);font-size:13px;text-align:center;margin-top:22px;line-height:1.7}
   .foot a{color:var(--gray)}
+  .qrwrap{margin:14px auto 4px;display:inline-block;padding:10px;background:#fff;border:1px solid var(--line);border-radius:14px;cursor:pointer;line-height:0}
+  .qrwrap svg{display:block}
+  .qrhint{font-size:13px;color:var(--muted);font-weight:600}
+  .overlay{position:fixed;inset:0;background:#fff;z-index:100;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;cursor:pointer}
+  .overlay.on{display:flex}
+  .overlay .ovcode{font-size:clamp(40px,9vw,96px);font-weight:800;letter-spacing:.12em;color:var(--blue-dark);line-height:1}
+  .overlay .ovqr{line-height:0}
+  .overlay .ovqr svg{width:min(62vw,62vh);height:min(62vw,62vh)}
+  .overlay .ovurl{font-size:clamp(13px,2.2vw,20px);color:var(--muted);font-weight:700;word-break:break-all;text-align:center}
+  .overlay .ovclose{font-size:14px;color:var(--gray);font-weight:600}
   @keyframes pop{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}
   .pop{animation:pop .45s ease-out}
 </style>
@@ -436,7 +446,9 @@ const VOTE_HTML = `<!doctype html>
     <div class="card codebox">
       <div class="lab">학생 참여 코드</div>
       <div class="code" id="t-code">----</div>
-      <div class="urlline">학생은 <b id="t-url">주소</b> 로 접속</div>
+      <div class="qrwrap" id="t-qr" onclick="bigQr()"></div>
+      <div class="qrhint">휴대폰 카메라로 찍으면 바로 들어와요 · 누르면 크게 보기</div>
+      <div class="urlline" style="margin-top:10px">학생은 <b id="t-url">주소</b> 로 접속</div>
       <div class="urlline" style="margin-top:10px">
         <span class="pill">접속한 기기 <b id="t-joined">0</b></span>
       </div>
@@ -498,6 +510,13 @@ const VOTE_HTML = `<!doctype html>
     <button class="btn ghost" onclick="leaveStudent()">나가기</button>
   </section>
 
+  <div class="overlay" id="qr-overlay" onclick="closeQr()">
+    <div class="ovcode" id="ov-code">----</div>
+    <div class="ovqr" id="ov-qr"></div>
+    <div class="ovurl" id="ov-url"></div>
+    <div class="ovclose">아무 곳이나 누르면 닫혀요</div>
+  </div>
+
   <p class="foot">
     이름·사진 같은 개인정보는 저장하지 않습니다. 기기 구분용 임의 번호만 사용합니다.
   </p>
@@ -507,8 +526,246 @@ const VOTE_HTML = `<!doctype html>
 (function(){
   "use strict";
 
+  // ── 아주 작은 QR 코드 생성기 (바이트 모드, 오류정정 L, 버전 1~10) ──
+  // 외부 라이브러리 없이 동작하도록 앱 안에 직접 넣음.
+  function qrMatrix(text) {
+    // 오류정정 L 기준 [EC코드워드수, 그룹1블록수, 그룹1데이터수, 그룹2블록수, 그룹2데이터수]
+    var EC = {
+      1:[7,1,19,0,0], 2:[10,1,34,0,0], 3:[15,1,55,0,0], 4:[20,1,80,0,0], 5:[26,1,108,0,0],
+      6:[18,2,68,0,0], 7:[20,2,78,0,0], 8:[24,2,97,0,0], 9:[30,2,116,0,0], 10:[18,2,68,2,69]
+    };
+    var ALIGN = {1:[],2:[6,18],3:[6,22],4:[6,26],5:[6,30],6:[6,34],7:[6,22,38],8:[6,24,42],9:[6,26,46],10:[6,28,50]};
+    var REMAIN = {1:0,2:7,3:7,4:7,5:7,6:7,7:0,8:0,9:0,10:0};
+    var FORMAT_L = [0x77C4,0x72F3,0x7DAA,0x789D,0x662F,0x6318,0x6C41,0x6976];
+    var VERINFO = {7:0x07C94,8:0x085BC,9:0x09A99,10:0x0A4D3};
+
+    // GF(256) 표
+    var EXP = new Array(512), LOG = new Array(256), x = 1;
+    for (var i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11D; }
+    for (i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+    function gmul(a, b) { return (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]]; }
+
+    function genPoly(n) {
+      var g = [1];
+      for (var i = 0; i < n; i++) {
+        var res = [];
+        for (var k = 0; k <= g.length; k++) res.push(0);
+        for (var j = 0; j < g.length; j++) { res[j] ^= g[j]; res[j + 1] ^= gmul(g[j], EXP[i]); }
+        g = res;
+      }
+      return g;
+    }
+    function ecBytes(block, ecLen) {
+      var g = genPoly(ecLen), rem = block.slice();
+      for (var i = 0; i < ecLen; i++) rem.push(0);
+      for (i = 0; i < block.length; i++) {
+        var coef = rem[i];
+        if (coef !== 0) for (var j = 1; j < g.length; j++) rem[i + j] ^= gmul(g[j], coef);
+      }
+      return rem.slice(block.length);
+    }
+
+    // UTF-8 바이트로
+    var data = [];
+    for (i = 0; i < text.length; i++) {
+      var c = text.charCodeAt(i);
+      if (c < 0x80) data.push(c);
+      else if (c < 0x800) data.push(0xC0 | (c >> 6), 0x80 | (c & 63));
+      else if (c < 0xD800 || c >= 0xE000) data.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+      else { i++; var cp = 0x10000 + (((c & 0x3FF) << 10) | (text.charCodeAt(i) & 0x3FF));
+             data.push(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 63), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63)); }
+    }
+
+    // 들어갈 수 있는 가장 작은 버전 고르기
+    var ver = 0;
+    for (var v = 1; v <= 10; v++) {
+      var t0 = EC[v], capBytes = t0[1] * t0[2] + t0[3] * t0[4];
+      if (4 + (v < 10 ? 8 : 16) + data.length * 8 <= capBytes * 8) { ver = v; break; }
+    }
+    if (!ver) return null; // 너무 긴 주소 — QR 생략
+
+    var t = EC[ver], ecLen = t[0];
+    var totalData = t[1] * t[2] + t[3] * t[4];
+
+    // 비트열 만들기
+    var bits = [];
+    function push(val, len) { for (var b = len - 1; b >= 0; b--) bits.push((val >> b) & 1); }
+    push(4, 4);
+    push(data.length, ver < 10 ? 8 : 16);
+    for (i = 0; i < data.length; i++) push(data[i], 8);
+    push(0, Math.min(4, totalData * 8 - bits.length));
+    while (bits.length % 8) bits.push(0);
+    var bytes = [];
+    for (i = 0; i < bits.length; i += 8) {
+      var byte = 0;
+      for (var j = 0; j < 8; j++) byte = (byte << 1) | bits[i + j];
+      bytes.push(byte);
+    }
+    var pad = [0xEC, 0x11], p = 0;
+    while (bytes.length < totalData) bytes.push(pad[(p++) & 1]);
+
+    // 블록 나누고 오류정정 붙이고 섞기
+    var dBlocks = [], eBlocks = [], off = 0;
+    function take(n, count) {
+      for (var k = 0; k < count; k++) {
+        var blk = bytes.slice(off, off + n); off += n;
+        dBlocks.push(blk); eBlocks.push(ecBytes(blk, ecLen));
+      }
+    }
+    take(t[2], t[1]);
+    if (t[3]) take(t[4], t[3]);
+    var maxLen = Math.max(t[2], t[4]), stream = [];
+    for (i = 0; i < maxLen; i++) for (var b2 = 0; b2 < dBlocks.length; b2++) if (i < dBlocks[b2].length) stream.push(dBlocks[b2][i]);
+    for (i = 0; i < ecLen; i++) for (b2 = 0; b2 < eBlocks.length; b2++) stream.push(eBlocks[b2][i]);
+
+    var allBits = [];
+    for (i = 0; i < stream.length; i++) for (j = 7; j >= 0; j--) allBits.push((stream[i] >> j) & 1);
+    for (i = 0; i < REMAIN[ver]; i++) allBits.push(0);
+
+    // 판 만들기
+    var size = 17 + 4 * ver, m = [], fixed = [];
+    for (var r = 0; r < size; r++) {
+      m.push([]); fixed.push([]);
+      for (var c = 0; c < size; c++) { m[r].push(0); fixed[r].push(0); }
+    }
+    function set(row, col, val) { if (row >= 0 && row < size && col >= 0 && col < size) { m[row][col] = val ? 1 : 0; fixed[row][col] = 1; } }
+
+    function finder(r0, c0) {
+      for (var r = -1; r <= 7; r++) for (var c = -1; c <= 7; c++) {
+        var on = (r >= 0 && r <= 6 && (c === 0 || c === 6)) || (c >= 0 && c <= 6 && (r === 0 || r === 6)) || (r >= 2 && r <= 4 && c >= 2 && c <= 4);
+        set(r0 + r, c0 + c, on);
+      }
+    }
+    finder(0, 0); finder(0, size - 7); finder(size - 7, 0);
+
+    for (i = 8; i < size - 8; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+
+    var ap = ALIGN[ver], last = ap.length - 1;
+    for (var ai = 0; ai <= last; ai++) for (var bi = 0; bi <= last; bi++) {
+      if ((ai === 0 && bi === 0) || (ai === 0 && bi === last) || (ai === last && bi === 0)) continue;
+      for (r = -2; r <= 2; r++) for (c = -2; c <= 2; c++) {
+        set(ap[ai] + r, ap[bi] + c, Math.max(Math.abs(r), Math.abs(c)) !== 1);
+      }
+    }
+
+    set(size - 8, 8, 1); // 항상 검은 칸
+
+    // 형식/버전 정보 자리 미리 잡아두기
+    for (i = 0; i <= 8; i++) { fixed[8][i] = 1; fixed[i][8] = 1; }
+    for (i = 0; i < 8; i++) { fixed[8][size - 1 - i] = 1; fixed[size - 1 - i][8] = 1; }
+    if (ver >= 7) for (i = 0; i < 18; i++) { fixed[i / 3 | 0][size - 11 + i % 3] = 1; fixed[size - 11 + i % 3][i / 3 | 0] = 1; }
+
+    // 데이터 채우기 (오른쪽 아래에서 지그재그)
+    var idx = 0, col2 = size - 1, up = true;
+    while (col2 > 0) {
+      if (col2 === 6) col2--;
+      for (var k2 = 0; k2 < size; k2++) {
+        var row2 = up ? size - 1 - k2 : k2;
+        for (var d = 0; d < 2; d++) {
+          var cc = col2 - d;
+          if (fixed[row2][cc]) continue;
+          m[row2][cc] = idx < allBits.length ? allBits[idx] : 0;
+          idx++;
+        }
+      }
+      col2 -= 2; up = !up;
+    }
+
+    function maskAt(k, r, c) {
+      if (k === 0) return (r + c) % 2 === 0;
+      if (k === 1) return r % 2 === 0;
+      if (k === 2) return c % 3 === 0;
+      if (k === 3) return (r + c) % 3 === 0;
+      if (k === 4) return ((r / 2 | 0) + (c / 3 | 0)) % 2 === 0;
+      if (k === 5) return (r * c) % 2 + (r * c) % 3 === 0;
+      if (k === 6) return ((r * c) % 2 + (r * c) % 3) % 2 === 0;
+      return ((r + c) % 2 + (r * c) % 3) % 2 === 0;
+    }
+
+    function penalty(g) {
+      var n = g.length, score = 0, i, j, run, prev;
+      // 규칙1: 같은 색 5칸 이상 연속
+      for (i = 0; i < n; i++) {
+        run = 1; prev = g[i][0];
+        for (j = 1; j < n; j++) { if (g[i][j] === prev) run++; else { if (run >= 5) score += run - 2; run = 1; prev = g[i][j]; } }
+        if (run >= 5) score += run - 2;
+        run = 1; prev = g[0][i];
+        for (j = 1; j < n; j++) { if (g[j][i] === prev) run++; else { if (run >= 5) score += run - 2; run = 1; prev = g[j][i]; } }
+        if (run >= 5) score += run - 2;
+      }
+      // 규칙2: 2x2 같은 색 덩어리
+      for (i = 0; i < n - 1; i++) for (j = 0; j < n - 1; j++) {
+        var q = g[i][j];
+        if (q === g[i][j + 1] && q === g[i + 1][j] && q === g[i + 1][j + 1]) score += 3;
+      }
+      // 규칙3: 1011101 앞뒤로 흰칸 4개인 무늬
+      var P1 = [1,0,1,1,1,0,1,0,0,0,0], P2 = [0,0,0,0,1,0,1,1,1,0,1];
+      function match(arr, s, pat) {
+        for (var z = 0; z < 11; z++) if (arr[s + z] !== pat[z]) return false;
+        return true;
+      }
+      for (i = 0; i < n; i++) {
+        var rowArr = g[i], colArr = [];
+        for (j = 0; j < n; j++) colArr.push(g[j][i]);
+        for (j = 0; j + 11 <= n; j++) {
+          if (match(rowArr, j, P1) || match(rowArr, j, P2)) score += 40;
+          if (match(colArr, j, P1) || match(colArr, j, P2)) score += 40;
+        }
+      }
+      // 규칙4: 검은 칸 비율이 50%에서 멀수록 감점
+      var dark = 0;
+      for (i = 0; i < n; i++) for (j = 0; j < n; j++) dark += g[i][j];
+      var pct = dark * 100 / (n * n);
+      score += Math.floor(Math.abs(pct - 50) / 5) * 10;
+      return score;
+    }
+
+    // 마스크 8개 중 가장 점수 낮은 것 고르기
+    var best = null, bestScore = Infinity, bestMask = 0;
+    for (var mk = 0; mk < 8; mk++) {
+      var g2 = [];
+      for (r = 0; r < size; r++) {
+        g2.push([]);
+        for (c = 0; c < size; c++) g2[r].push(fixed[r][c] ? m[r][c] : (m[r][c] ^ (maskAt(mk, r, c) ? 1 : 0)));
+      }
+      // 형식 정보 써넣기
+      var fmt = FORMAT_L[mk];
+      function fbit(z) { return (fmt >> z) & 1; }
+      for (i = 0; i <= 5; i++) g2[i][8] = fbit(i);
+      g2[7][8] = fbit(6); g2[8][8] = fbit(7); g2[8][7] = fbit(8);
+      for (i = 9; i < 15; i++) g2[8][14 - i] = fbit(i);
+      for (i = 0; i < 8; i++) g2[8][size - 1 - i] = fbit(i);
+      for (i = 8; i < 15; i++) g2[size - 15 + i][8] = fbit(i);
+      g2[size - 8][8] = 1;
+      if (ver >= 7) {
+        var vi = VERINFO[ver];
+        for (i = 0; i < 18; i++) {
+          var vb = (vi >> i) & 1, a1 = size - 11 + i % 3, b1 = i / 3 | 0;
+          g2[b1][a1] = vb; g2[a1][b1] = vb;
+        }
+      }
+      var sc = penalty(g2);
+      if (sc < bestScore) { bestScore = sc; best = g2; bestMask = mk; }
+    }
+    return best;
+  }
+
+  /** QR 판을 SVG 문자열로 (테두리 여백 4칸 포함) */
+  function qrSvg(text) {
+    var g = qrMatrix(text);
+    if (!g) return "";
+    var n = g.length, quiet = 4, side = n + quiet * 2, d = "";
+    for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) {
+      if (g[r][c]) d += "M" + (c + quiet) + " " + (r + quiet) + "h1v1h-1z";
+    }
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + side + ' ' + side + '"' +
+      ' width="160" height="160" shape-rendering="crispEdges" role="img" aria-label="학생 참여 QR코드">' +
+      '<rect width="' + side + '" height="' + side + '" fill="#ffffff"/>' +
+      '<path d="' + d + '" fill="#000000"/></svg>';
+  }
+
   // ── 공통 상태 ─────────────────────────────────────────────
-  var T = { code:null, token:null, rounds:0, round:1, ended:false, results:{}, joined:0 };
+  var T = { code:null, token:null, url:null, rounds:0, round:1, ended:false, results:{}, joined:0 };
   var S = { code:null, round:0, rounds:0, voted:false, ended:false };
   var pollTimer = null;
 
@@ -603,7 +860,9 @@ const VOTE_HTML = `<!doctype html>
   function openRun(){
     show("s-run");
     $("t-code").textContent = T.code;
-    $("t-url").textContent = location.origin + location.pathname.replace(/\\/teacher$/,"") + "?code=" + T.code;
+    T.url = location.origin + location.pathname.replace(/\\/teacher$/,"") + "?code=" + T.code;
+    $("t-url").textContent = T.url;
+    $("t-qr").innerHTML = qrSvg(T.url);
     refreshTeacher();
     stopPoll();
     pollTimer = setInterval(function(){
@@ -730,6 +989,15 @@ const VOTE_HTML = `<!doctype html>
       .catch(function(e){ err("run-err", e.message); });
   }
 
+  function bigQr(){
+    if(!T.url) return;
+    $("ov-code").textContent = T.code;
+    $("ov-qr").innerHTML = qrSvg(T.url);
+    $("ov-url").textContent = T.url;
+    $("qr-overlay").className = "overlay on";
+  }
+  function closeQr(){ $("qr-overlay").className = "overlay"; }
+
   // ── 학생 ─────────────────────────────────────────────────
   function joinRoom(){
     var c = ($("joincode").value || "").replace(/\\D/g,"");
@@ -855,7 +1123,8 @@ const VOTE_HTML = `<!doctype html>
   window.go = go; window.bump = bump; window.createRoom = createRoom; window.resumeTeacher = resumeTeacher;
   window.reveal = reveal; window.nextRound = nextRound; window.finishClass = finishClass;
   window.leaveRoom = leaveRoom; window.joinRoom = joinRoom; window.sendLike = sendLike;
-  window.leaveStudent = leaveStudent;
+  window.leaveStudent = leaveStudent; window.bigQr = bigQr; window.closeQr = closeQr;
+  document.addEventListener("keydown", function(e){ if(e.key === "Escape") closeQr(); });
 
   boot();
 })();
