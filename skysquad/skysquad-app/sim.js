@@ -14,7 +14,7 @@ var SkySim = (function () {
   'use strict';
 
   // 서버·클라이언트가 다르면 접속 시 경고를 띄우려고 둡니다.
-  const VERSION = 2;               // 2: 보조기·차지샷·메달 연쇄 (1945 스타일)
+  const VERSION = 3;               // 2: 보조기·차지샷·메달 / 3: 기체 6종·지상 목표물·부품 보스·결과 화면
 
   const FIELD = { w: 1600, h: 900 };
   const TICK_MS = 50;               // 20Hz
@@ -41,7 +41,7 @@ var SkySim = (function () {
   //  ready → play → (boss) → clear → ready(다음 스테이지)
   //  전멸하면 wipe → ready(같은 스테이지 다시)
   const READY_SEC = 3.2;
-  const CLEAR_SEC = 4.6;
+  const CLEAR_SEC = 6.5;            // 결과 화면을 읽을 시간
   const WIPE_SEC = 3.4;
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -195,6 +195,71 @@ var SkySim = (function () {
   const CHARGE_MAX = 3;
   const CHARGE_DMG = [0, 90, 190, 330];
 
+  // ── 기체 6종 — 비행기 색(0~5)마다 무기 성격과 차지샷이 다릅니다 ──
+  //  spread: 퍼짐 배율, dmg: 피해 배율, cd: 발사 간격 배율, pierce: 관통 추가, life: 사거리(초), bombs: 폭탄 추가
+  const SHIP_TYPES = [
+    { key: 'balance', name: '하늘매',     desc: '균형형 · 차지: 거대 포탄',       spread: 1,    dmg: 1,    cd: 1,    pierce: 0, life: 6,   bombs: 0, charge: 'orb' },
+    { key: 'spread',  name: '노을부채',   desc: '넓게 퍼짐 · 차지: 부채꼴 포탄', spread: 1.9,  dmg: 0.82, cd: 1,    pierce: 0, life: 6,   bombs: 0, charge: 'fan' },
+    { key: 'lance',   name: '숲창',       desc: '곧게 관통 · 차지: 관통 창',      spread: 0.35, dmg: 0.95, cd: 1,    pierce: 1, life: 6,   bombs: 0, charge: 'lance' },
+    { key: 'rapid',   name: '보라벌',     desc: '빠른 연사 · 차지: 유도 미사일',  spread: 1,    dmg: 0.72, cd: 0.7,  pierce: 0, life: 6,   bombs: 0, charge: 'missile' },
+    { key: 'heavy',   name: '분홍망치',   desc: '짧고 강함 · 차지: 사방 충격파',  spread: 1.2,  dmg: 1.55, cd: 1,    pierce: 0, life: 0.5, bombs: 0, charge: 'nova' },
+    { key: 'bomber',  name: '금빛독수리', desc: '폭탄 +1 · 차지: 융단 폭격',     spread: 1,    dmg: 0.9,  cd: 1,    pierce: 0, life: 6,   bombs: 1, charge: 'carpet' },
+  ];
+  const shipType = (color) => SHIP_TYPES[((color | 0) % 6 + 6) % 6];
+
+  // ── 지형 — 화면과 서버가 똑같은 땅을 보도록 여기서 계산합니다 ──
+  //  땅은 초당 GROUND_SPEED 만큼 왼쪽으로 흐르고, 가로로 FIELD.w 마다 되풀이됩니다.
+  const TERRAIN_W = 800, TERRAIN_H = 450;      // 지형 격자(화면의 절반 해상도)
+  const GROUND_SPEED = 130;
+  const TERRAIN = {
+    dawn: { sea: 0.555, shift: -0.03 }, cloud: { sea: 0.555, shift: -0.06 }, sunset: {}, night: { sea: 0.43 },
+    aurora: { lake: 0.36 }, desert: { lake: 0.24 }, volcano: {}, glacier: { sea: 0.5 }, strato: null, space: null,
+  };
+  function periodicNoise(seed) {
+    const r = mulberry32(seed), T = new Float32Array(8192);
+    for (let i = 0; i < T.length; i++) T[i] = r();
+    const hsh = (i, j, P, o) => T[(((((i % P) + P) % P) * 92821) ^ ((j + o * 977) * 68917)) & 8191];
+    const one = (x, y, P, o) => {
+      const cs = TERRAIN_W / P, fx = x / cs, fy = y / cs, ix = Math.floor(fx), iy = Math.floor(fy);
+      let tx = fx - ix, ty = fy - iy; tx = tx * tx * (3 - 2 * tx); ty = ty * ty * (3 - 2 * ty);
+      const a = hsh(ix, iy, P, o), b = hsh(ix + 1, iy, P, o), c = hsh(ix, iy + 1, P, o), d = hsh(ix + 1, iy + 1, P, o);
+      return a + (b - a) * tx + (c - a) * ty + (a - b - c + d) * tx * ty;
+    };
+    return (x, y) => one(x, y, 5, 0) * 0.5 + one(x, y, 10, 1) * 0.25 + one(x, y, 20, 2) * 0.15 + one(x, y, 40, 3) * 0.1;
+  }
+  const noiseByZone = [];
+  const terrainNoise = (zone) => noiseByZone[zone] || (noiseByZone[zone] = periodicNoise(1000 + zone * 31));
+  // 지형 격자 한 칸의 높이 (0~1)
+  function terrainHeight(zone, tx, ty) {
+    const T = TERRAIN[(ZONES[zone] || ZONES[0]).key] || {};
+    const n = (terrainNoise(zone)(((tx % TERRAIN_W) + TERRAIN_W) % TERRAIN_W, ty) - 0.5) * 1.9 + 0.5 + (T.shift || 0);
+    return clamp(n, 0, 1);
+  }
+  const groundOffset = (tick) => ((tick * DT * GROUND_SPEED) % FIELD.w + FIELD.w) % FIELD.w;
+  // 필드의 한 점이 지금 무엇 위에 있는지: 'sea' · 'lake' · 'land' · null(하늘 높이라 땅이 없음)
+  function terrainAt(zone, x, y, tick) {
+    const T = TERRAIN[(ZONES[zone] || ZONES[0]).key];
+    if (!T) return null;
+    const n = terrainHeight(zone, (x + groundOffset(tick)) / 2, clamp(y, 0, FIELD.h - 1) / 2);
+    if (T.sea !== undefined && n < T.sea) return 'sea';
+    if (T.lake !== undefined && n < T.lake) return 'lake';
+    return 'land';
+  }
+
+  // ── 지상 목표물 — 땅과 함께 흘러가며 쏘고, 부수면 금괴를 떨어뜨립니다 ──
+  const GROUND_UNITS = {
+    tank:   { hp: 26, r: 20, score: 30, on: 'land', every: 2.9, k: 'aim1' },
+    aa:     { hp: 20, r: 18, score: 26, on: 'land', every: 3.3, k: 'twin' },
+    bunker: { hp: 60, r: 26, score: 50, on: 'land', every: 3.6, k: 'radial6' },
+    ship:   { hp: 85, r: 34, score: 60, on: 'sea',  every: 2.8, k: 'spread3' },
+  };
+  const ZONE_GROUND = [['ship', 'tank', 'aa'], ['ship', 'aa'], ['tank', 'aa', 'bunker'], ['aa', 'tank', 'ship'],
+    ['tank', 'aa'], ['tank', 'bunker'], ['bunker', 'aa'], ['ship', 'aa'], [], []];
+  const GOLD = 250;
+  // 보스 포탑 자리 (보스 반경 배수) — 앞쪽 위아래, 뒤쪽 위아래
+  const BOSS_PART_POS = [[-0.3, -0.72], [-0.3, 0.72], [0.35, -0.95], [0.35, 0.95]];
+  const ARMOR_MUL = 0.35;          // 포탑이 남아 있으면 본체는 35%만 맞습니다
+
   // ── 메달 — 6초 안에 이어서 먹으면 값이 올라갑니다 ──
   const MEDAL = [100, 200, 300, 500, 800, 1000, 1500, 2000];
   const CHAIN_SEC = 6;
@@ -238,7 +303,7 @@ var SkySim = (function () {
         gap: Math.max(0.14, (0.34 - tier * 0.15) * (type === 'wasp' ? 0.6 : 1)),
       });
     }
-    const plan = { n, zone, isBoss, waves, tier };
+    const plan = { n, zone, isBoss, waves, tier, hpMul, fireMul };
     if (isBoss) {
       const b = BOSSES[zone];
       plan.boss = { key: b.key, hp: Math.round(b.hp), fire: Math.max(0.5, fireMul + 0.15) };
@@ -285,6 +350,9 @@ var SkySim = (function () {
       this.stage = clamp(opts.stage || 1, 1, TOTAL_STAGES);
       this.players = new Map();
       this.enemies = [];
+      this.grounds = [];            // 지상 목표물 (전차·대공포·토치카·군함)
+      this.groundT = 2;
+      this.stageT = 0;              // 이번 단계에 걸린 시간 (시간 보너스)
       this.bullets = [];
       this.beams = [];
       this.pickups = [];
@@ -314,10 +382,11 @@ var SkySim = (function () {
       const p = {
         id, name: (name || '조종사').slice(0, 8), color: color || 0,
         x: 170 + (slot % 2) * 60, y: 180 + slot * 120, tx: 170, ty: 180 + slot * 120,
-        hp: P_MAXHP, lives: P_LIVES, gun: 1, bombs: BOMB_START,
+        hp: P_MAXHP, lives: P_LIVES, gun: 1, bombs: BOMB_START + shipType(color).bombs,
         down: false, downT: 0, revT: 0, invT: SPAWN_INV, shieldT: 0,
         fireCd: 0, score: 0, kills: 0, deaths: 0, ang: 0, alive: true, joinT: 0,
         wingCd: WING_CD, charge: 0, chain: 0, chainT: 0,
+        sk: 0, sm: 0, sg: 0, score0: 0,     // 이번 단계 격추·메달·금괴·시작 점수 (결과 화면용)
       };
       p.y = clamp(p.y, 120, FIELD.h - 120); p.ty = p.y;
       this.players.set(id, p);
@@ -340,14 +409,47 @@ var SkySim = (function () {
       if (p.down || p.charge < 1 || (this.phase !== 'play' && this.phase !== 'boss')) return;
       const lv = Math.floor(clamp(p.charge, 0, CHARGE_MAX));
       p.charge = 0;
-      const dmg = Math.round(CHARGE_DMG[lv] * (1 + (this.stage - 1) * 0.06));
-      this.addBullet({ x: p.x + 40, y: p.y, vx: 1050, vy: 0, r: 20 + lv * 9, dmg, own: p.id, kind: 'pc', col: p.color, life: 3 });
-      this.fx.push({ t: 'charge', id: p.id, x: p.x, y: p.y, lv });
+      const D = CHARGE_DMG[lv] * (1 + (this.stage - 1) * 0.06);
+      const T = shipType(p.color);
+      const C = (o) => this.addBullet(Object.assign({ x: p.x + 40, y: p.y, own: p.id, col: p.color, life: 3, cg: 1, kind: 'pk' }, o));
+      switch (T.charge) {
+        case 'fan':       // 부채꼴로 퍼지는 포탄
+          for (let k = 0; k < 3 + lv * 2; k++) {
+            const a = (k / (2 + lv * 2) - 0.5) * 1.1;
+            C({ vx: Math.cos(a) * 950, vy: Math.sin(a) * 950, r: 16 + lv * 3, dmg: Math.round(D * 0.45) });
+          }
+          break;
+        case 'lance':     // 한 줄로 길게 뚫고 가는 창
+          for (let k = 0; k < 4 + lv * 2; k++) C({ x: p.x + 40 - k * 46, vx: 1700, vy: 0, r: 12 + lv * 4, dmg: Math.round(D * 0.32) });
+          break;
+        case 'missile':   // 적을 따라가는 미사일
+          for (let k = 0; k < 2 + lv * 2; k++) {
+            const a = (k % 2 ? -1 : 1) * (0.5 + (k >> 1) * 0.25);
+            C({ vx: Math.cos(a) * 520, vy: Math.sin(a) * 520, r: 12, dmg: Math.round(D * 0.42), hom: 4.2, kind: 'pm', life: 3.5 });
+          }
+          break;
+        case 'nova':      // 사방으로 퍼지는 충격파
+          for (let k = 0; k < 8 + lv * 4; k++) {
+            const a = k / (8 + lv * 4) * Math.PI * 2;
+            C({ x: p.x, vx: Math.cos(a) * 760, vy: Math.sin(a) * 760, r: 16 + lv * 3, dmg: Math.round(D * 0.42), life: 0.9 });
+          }
+          break;
+        case 'carpet':    // 앞쪽 세로 한 줄 전체를 폭격
+          for (let k = 0; k < 5 + lv * 2; k++) {
+            const y = clamp(p.y + (k / (4 + lv * 2) - 0.5) * (260 + lv * 120), 30, FIELD.h - 30);
+            C({ y, vx: 900, vy: 0, r: 18 + lv * 3, dmg: Math.round(D * 0.4) });
+          }
+          break;
+        default:          // 거대 포탄
+          C({ vx: 1050, vy: 0, r: 20 + lv * 9, dmg: Math.round(D), kind: 'pc' });
+      }
+      this.fx.push({ t: 'charge', id: p.id, x: p.x, y: p.y, lv, k: T.charge });
     }
     alivePlayers() { const a = []; for (const p of this.players.values()) if (!p.down) a.push(p); return a; }
 
     clearField() {
       this.enemies.length = 0; this.beams.length = 0; this.pickups.length = 0; this.boss = null;
+      this.grounds.length = 0; this.groundT = 2;
       for (const b of this.bullets) this.deadBullets.push(b.id);
       this.bullets.length = 0;
     }
@@ -362,8 +464,9 @@ var SkySim = (function () {
       this.waveIdx = 0; this.waveT = 0; this.spawnQ = [];
       this.clearField();
       this.phase = 'ready'; this.phT = READY_SEC;
-      this.stageKills = 0; this.stageScore0 = this.score;
+      this.stageKills = 0; this.stageScore0 = this.score; this.stageT = 0;
       for (const p of this.players.values()) {
+        p.sk = 0; p.sm = 0; p.sg = 0; p.score0 = p.score;
         p.down = false; p.downT = 0; p.revT = 0;
         p.hp = P_MAXHP; p.invT = SPAWN_INV;
         p.x = 150; p.y = clamp(p.y, 120, FIELD.h - 120);
@@ -418,8 +521,17 @@ var SkySim = (function () {
         id: this.nid++, key: b.key, name: b.name, art: b.art, boss: true,
         x: FIELD.w + 220, y: FIELD.h / 2, vx: -180, vy: 0,
         hp, maxHp: hp, r: b.r, t: 0, ang: Math.PI, phaseIdx: 0, entering: true,
-        cds: [], flash: 0, chargeT: 0, clones: [], fireMul: this.plan.boss.fire,
+        cds: [], flash: 0, chargeT: 0, clones: [], fireMul: this.plan.boss.fire, parts: [],
       };
+      // 1945 식 부품 — 포탑을 먼저 부숴야 본체가 제대로 맞습니다. 지역이 오를수록 포탑이 늘어납니다.
+      const nParts = 2 + (this.plan.zone >= 3 ? 1 : 0) + (this.plan.zone >= 6 ? 1 : 0);
+      for (let i = 0; i < nParts; i++) {
+        const [ox, oy] = BOSS_PART_POS[i];
+        const php = Math.round(hp * 0.07);
+        this.boss.parts.push({ dx: ox * b.r, dy: oy * b.r, hp: php, maxHp: php, r: Math.max(22, b.r * 0.2),
+          alive: true, cd: 1.5 + i * 0.4, ang: Math.PI, flash: 0 });
+      }
+      this.boss.armored = true;
       this.boss.cds = b.phases[0].atk.map(() => 0.9);
       this.phase = 'boss'; this.phT = 0;
       this.fx.push({ t: 'bosswarn', name: b.name });
@@ -465,8 +577,10 @@ var SkySim = (function () {
         const q = this.spawnQ.shift();
         this.spawnEnemy(q.w, q.s);
       }
+      this.stageT += dt;
       this.stepPlayers(dt);
       this.stepEnemies(dt);
+      this.stepGrounds(dt);
       if (this.boss) this.stepBoss(dt);
       this.stepBullets(dt);
       this.stepBeams(dt);
@@ -497,16 +611,22 @@ var SkySim = (function () {
 
     finishStage() {
       this.phase = 'clear'; this.phT = CLEAR_SEC;
-      const bonus = 300 + this.stage * 40;
+      const base = 300 + this.stage * 40;
+      // 시간 보너스: 목표 시간보다 빨리 깰수록 커집니다 (1945 의 '시간 메달')
+      const target = this.plan.waves.length * 11 + (this.plan.isBoss ? 70 : 0);
+      const timeBonus = Math.max(0, Math.round((target - this.stageT) * 25 * (1 + this.stage * 0.04)));
+      const bonus = base + timeBonus;
       this.score += bonus;
       this.best = Math.max(this.best, Math.min(TOTAL_STAGES, this.stage + 1));
       this.clearField();
+      const P = [];
+      for (const p of this.players.values()) P.push([p.id, p.sk, p.sm, p.sg, p.score - p.score0]);
       this.log = { stage: this.stage, bonus, score: this.score };
-      this.fx.push({ t: 'clear', stage: this.stage, bonus });
+      this.fx.push({ t: 'clear', stage: this.stage, bonus, base, timeBonus, time: Math.round(this.stageT * 10) / 10, target, P });
       for (const p of this.players.values()) {
         if (p.down) { p.down = false; p.hp = Math.round(P_MAXHP * 0.6); p.invT = SPAWN_INV; }
         else p.hp = Math.min(P_MAXHP, p.hp + 34);
-        if (p.bombs < BOMB_MAX && this.stage % 5 === 0) p.bombs++;
+        if (p.bombs < BOMB_MAX + shipType(p.color).bombs && this.stage % 5 === 0) p.bombs++;
       }
     }
 
@@ -560,14 +680,16 @@ var SkySim = (function () {
         if (this.phase === 'play' || this.phase === 'boss') {
           p.fireCd -= dt;
           const g = GUNS[clamp(p.gun, 1, GUN_MAX)];
+          const T = shipType(p.color);
           if (p.fireCd <= 0) {
-            p.fireCd = g.cd;
+            p.fireCd = g.cd * T.cd;
             for (const s of g.shots) {
               const spd = BULLET_SPD;
+              const a = s.a === Math.PI ? s.a : s.a * T.spread;
               this.addBullet({
-                x: p.x + 26, y: p.y + (s.dy || 0), vx: Math.cos(s.a) * spd, vy: Math.sin(s.a) * spd,
-                r: s.big ? 9 : 6, dmg: s.dmg, own: p.id, kind: s.big === 2 ? 'p3' : s.big ? 'p2' : 'p1',
-                pierce: s.pierce || 0, col: p.color,
+                x: p.x + 26, y: p.y + (s.dy || 0) * (T.spread < 1 ? 0.6 : 1), vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+                r: s.big ? 9 : 6, dmg: s.dmg * T.dmg, own: p.id, kind: s.big === 2 ? 'p3' : s.big ? 'p2' : 'p1',
+                pierce: Math.max(s.pierce || 0, T.pierce), col: p.color, life: T.life,
               });
             }
           }
@@ -620,8 +742,14 @@ var SkySim = (function () {
         const e = this.enemies[i];
         if (d2(e.x, e.y, p.x, p.y) < BOMB_R * BOMB_R) this.damageEnemy(i, 120, p);
       }
+      for (let i = this.grounds.length - 1; i >= 0; i--) {
+        const g = this.grounds[i];
+        if (d2(g.x, g.y, p.x, p.y) < BOMB_R * BOMB_R) this.damageGround(i, 120, p);
+      }
       if (this.boss && d2(this.boss.x, this.boss.y, p.x, p.y) < (BOMB_R + this.boss.r) * (BOMB_R + this.boss.r)) {
-        this.damageBoss(200, p);
+        const B = this.boss;
+        for (let i = 0; i < B.parts.length; i++) if (B.parts[i].alive) this.damagePart(i, 150, p);
+        if (this.boss) this.damageBoss(200, p);
       }
     }
 
@@ -631,6 +759,7 @@ var SkySim = (function () {
         id: this.nid++, x: o.x, y: o.y, vx: o.vx, vy: o.vy, r: o.r || 7,
         dmg: o.dmg || 8, own: o.own === undefined ? -1 : o.own, kind: o.kind || 'e1',
         pierce: o.pierce || 0, hom: o.hom || 0, life: o.life || 6, born: this.tick, col: o.col || 0,
+        cg: o.cg || 0,
       };
       this.bullets.push(b);
       this.newBullets.push(b);
@@ -647,8 +776,8 @@ var SkySim = (function () {
       for (let i = this.bullets.length - 1; i >= 0; i--) {
         const b = this.bullets[i];
         if (b.hom) {
-          // 유도탄 — 가장 가까운 아군을 향해 천천히 돕니다
-          const tgt = this.nearestPlayer(b.x, b.y);
+          // 유도탄 — 적탄은 가장 가까운 아군을, 아군 미사일은 가장 가까운 적을 향해 돕니다
+          const tgt = b.own === -1 ? this.nearestPlayer(b.x, b.y) : this.nearestTarget(b.x, b.y);
           if (tgt) {
             const want = Math.atan2(tgt.y - b.y, tgt.x - b.x);
             const cur = Math.atan2(b.vy, b.vx);
@@ -664,6 +793,14 @@ var SkySim = (function () {
         b.life -= dt;
         if (b.life <= 0 || b.x < -80 || b.x > FIELD.w + 120 || b.y < -80 || b.y > FIELD.h + 80) this.killBullet(i);
       }
+    }
+    nearestTarget(x, y) {
+      let best = null, bd = Infinity;
+      const see = (o) => { const d = d2(x, y, o.x, o.y); if (d < bd) { bd = d; best = o; } };
+      for (const e of this.enemies) see(e);
+      for (const g of this.grounds) see(g);
+      if (this.boss && !this.boss.entering) see(this.boss);
+      return best;
     }
     nearestPlayer(x, y) {
       let best = null, bd = Infinity;
@@ -781,6 +918,78 @@ var SkySim = (function () {
       }
     }
 
+    /* ── 지상 목표물 ── */
+    stepGrounds(dt) {
+      const zone = this.plan ? this.plan.zone : 0;
+      const kinds = ZONE_GROUND[zone] || [];
+      if (kinds.length && (this.phase === 'play' || this.phase === 'boss')) {
+        this.groundT -= dt;
+        if (this.groundT <= 0) {
+          this.groundT = 2.4 + this.rng() * 2.4;
+          if (this.grounds.length < 5) {
+            // 오른쪽 끝에서 땅 모양에 맞는 자리를 찾습니다 (군함은 바다, 전차는 땅)
+            for (let tries = 0; tries < 8; tries++) {
+              const x = FIELD.w + 40, y = 80 + this.rng() * (FIELD.h - 160);
+              const t = terrainAt(zone, x, y, this.tick);
+              const fit = kinds.filter((k) => (GROUND_UNITS[k].on === 'sea') === (t === 'sea' || t === 'lake'));
+              if (!fit.length) continue;
+              // 배는 몸집이 커서 앞뒤도 바다여야 합니다
+              const type = fit[Math.floor(this.rng() * fit.length)];
+              if (type === 'ship' && (terrainAt(zone, x - 40, y, this.tick) === 'land' || terrainAt(zone, x + 40, y, this.tick) === 'land')) continue;
+              const d = GROUND_UNITS[type];
+              const hp = Math.round(d.hp * this.plan.hpMul * (0.6 + 0.4 * Math.max(1, this.players.size)));
+              this.grounds.push({ id: this.nid++, type, x, y, hp, maxHp: hp, r: d.r, ang: Math.PI,
+                fireCd: 1 + this.rng() * d.every, flash: 0 });
+              break;
+            }
+          }
+        }
+      }
+      for (let i = this.grounds.length - 1; i >= 0; i--) {
+        const g = this.grounds[i];
+        g.x -= GROUND_SPEED * dt;
+        if (g.flash > 0) g.flash -= dt;
+        const tgt = this.nearestPlayer(g.x, g.y);
+        if (tgt) {
+          const want = Math.atan2(tgt.y - g.y, tgt.x - g.x);
+          let d = want - g.ang;
+          while (d > Math.PI) d -= Math.PI * 2;
+          while (d < -Math.PI) d += Math.PI * 2;
+          g.ang += clamp(d, -2.5 * dt, 2.5 * dt);
+        }
+        const d = GROUND_UNITS[g.type];
+        g.fireCd -= dt;
+        if (g.fireCd <= 0 && g.x < FIELD.w - 40 && g.x > 160 && tgt) {
+          g.fireCd = d.every * (this.plan ? this.plan.fireMul : 1) * 1.15;
+          this.groundFire(g, d.k);
+        }
+        if (g.x < -60) { this.grounds[i] = this.grounds[this.grounds.length - 1]; this.grounds.pop(); }
+      }
+    }
+    groundFire(g, kind) {
+      const S = (a, spd, kd) => this.addBullet({ x: g.x + Math.cos(g.ang) * g.r, y: g.y + Math.sin(g.ang) * g.r,
+        vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, r: 8, dmg: 11, own: -1, kind: kd || 'e1' });
+      switch (kind) {
+        case 'twin': S(g.ang - 0.12, 360); S(g.ang + 0.12, 360); break;
+        case 'spread3': for (let k = -1; k <= 1; k++) S(g.ang + k * 0.28, 300, 'e2'); break;
+        case 'radial6': for (let k = 0; k < 6; k++) S(g.ang + k * Math.PI / 3, 250); break;
+        default: S(g.ang, 330);
+      }
+    }
+    damageGround(i, dmg, byPlayer) {
+      const g = this.grounds[i];
+      g.hp -= dmg; g.flash = 0.08;
+      if (g.hp > 0) return false;
+      const gain = GROUND_UNITS[g.type].score * (1 + this.stage * 0.05) | 0;
+      this.score += gain;
+      if (byPlayer) { byPlayer.score += gain; byPlayer.kills++; byPlayer.sk++; }
+      this.fx.push({ t: 'boom', x: g.x, y: g.y, s: g.r, gnd: 1 });
+      this.addPickup('gold', g.x, g.y, -GROUND_SPEED);
+      this.grounds[i] = this.grounds[this.grounds.length - 1];
+      this.grounds.pop();
+      return true;
+    }
+
     enemyFire(e, kind) {
       const tgt = this.nearestPlayer(e.x, e.y);
       const aim = tgt ? Math.atan2(tgt.y - e.y, tgt.x - e.x) : Math.PI;
@@ -820,7 +1029,7 @@ var SkySim = (function () {
       if (e.hp > 0) return false;
       const gain = e.score * (1 + this.stage * 0.05) | 0;
       this.score += gain;
-      if (byPlayer) { byPlayer.score += gain; byPlayer.kills++; }
+      if (byPlayer) { byPlayer.score += gain; byPlayer.kills++; byPlayer.sk++; }
       this.stageKills = (this.stageKills || 0) + 1;
       this.fx.push({ t: 'boom', x: e.x, y: e.y, s: e.r });
       // 분열기
@@ -893,13 +1102,19 @@ var SkySim = (function () {
           else { p.score += 500; this.score += 500; }
           break;
         case 'heal': p.hp = Math.min(P_MAXHP, p.hp + 40); break;
-        case 'bomb': p.bombs = Math.min(BOMB_MAX, p.bombs + 1); break;
+        case 'bomb': p.bombs = Math.min(BOMB_MAX + shipType(p.color).bombs, p.bombs + 1); break;
+        case 'gold': {
+          const v = Math.round(GOLD * (1 + this.stage * 0.03));
+          p.score += v; this.score += v; p.sg++;
+          this.fx.push({ t: 'grab', x: p.x, y: p.y, k: type, id: p.id, v });
+          return;
+        }
         case 'shield': p.shieldT = 9; break;
         case 'star': {
           p.chain = p.chainT > 0 ? p.chain + 1 : 1;
           p.chainT = CHAIN_SEC;
           const v = MEDAL[Math.min(p.chain, MEDAL.length) - 1];
-          p.score += v; this.score += v;
+          p.score += v; this.score += v; p.sm++;
           this.fx.push({ t: 'grab', x: p.x, y: p.y, k: type, id: p.id, v, n: p.chain });
           return;
         }
@@ -967,6 +1182,20 @@ var SkySim = (function () {
       // 몸집이 큰 보스가 화면 밖으로 나가거나 위쪽 표시줄을 가리지 않게 반경만큼 여유를 둡니다
       B.x = clamp(B.x, 420, FIELD.w - B.r * 0.85);
       B.y = clamp(B.y, 110 + B.r * 0.6, FIELD.h - B.r * 0.75);
+
+      // 포탑: 가장 가까운 아군을 겨눠 두 발씩
+      for (const pt of B.parts) {
+        if (!pt.alive) continue;
+        if (pt.flash > 0) pt.flash -= dt;
+        const px = B.x + pt.dx, py = B.y + pt.dy;
+        const tgt = this.nearestPlayer(px, py);
+        if (tgt) pt.ang = Math.atan2(tgt.y - py, tgt.x - px);
+        pt.cd -= dt;
+        if (pt.cd <= 0 && tgt) {
+          pt.cd = 2.3 * B.fireMul;
+          for (const k of [-0.1, 0.1]) this.addBullet({ x: px, y: py, vx: Math.cos(pt.ang + k) * 330, vy: Math.sin(pt.ang + k) * 330, r: 8, dmg: 12, own: -1, kind: 'e1' });
+        }
+      }
 
       // 공격
       for (let i = 0; i < ph.atk.length; i++) {
@@ -1059,9 +1288,29 @@ var SkySim = (function () {
       }
     }
 
+    damagePart(i, dmg, byPlayer) {
+      const B = this.boss;
+      if (!B || B.entering) return false;
+      const pt = B.parts[i];
+      if (!pt || !pt.alive) return false;
+      pt.hp -= dmg; pt.flash = 0.08;
+      if (pt.hp > 0) return false;
+      pt.alive = false;
+      const gain = 300 + this.stage * 20;
+      this.score += gain;
+      if (byPlayer) { byPlayer.score += gain; byPlayer.sk++; }
+      this.fx.push({ t: 'partdown', x: B.x + pt.dx, y: B.y + pt.dy });
+      this.addPickup('gold', B.x + pt.dx, B.y + pt.dy, -90);
+      if (B.armored && B.parts.every((q) => !q.alive)) {
+        B.armored = false;              // 장갑이 벗겨지며 본체가 드러납니다
+        this.fx.push({ t: 'armorbreak', x: B.x, y: B.y, r: B.r });
+      }
+      return true;
+    }
     damageBoss(dmg, byPlayer) {
       const B = this.boss;
       if (!B || B.entering) return false;
+      if (B.armored) dmg *= ARMOR_MUL;
       B.hp -= dmg; B.flash = 0.1;
       if (B.hp > 0) return false;
       const gain = 2000 + this.stage * 120;
@@ -1107,8 +1356,27 @@ var SkySim = (function () {
           continue;
         }
         const p = this.players.get(b.own);
-        if (b.kind === 'pc') {
+        if (b.cg) {
           if (!b.hits) b.hits = new Set();
+          for (let j = this.grounds.length - 1; j >= 0; j--) {
+            const g = this.grounds[j];
+            if (b.hits.has(g.id)) continue;
+            const rr = g.r + b.r;
+            if (d2(b.x, b.y, g.x, g.y) > rr * rr) continue;
+            b.hits.add(g.id);
+            this.damageGround(j, b.dmg, p);
+          }
+          if (this.boss) {
+            const B = this.boss;
+            for (let j = 0; j < B.parts.length; j++) {
+              const pt = B.parts[j];
+              if (!pt.alive || b.hits.has('p' + j)) continue;
+              const rr = pt.r + b.r;
+              if (d2(b.x, b.y, B.x + pt.dx, B.y + pt.dy) > rr * rr) continue;
+              b.hits.add('p' + j);
+              this.damagePart(j, b.dmg, p);
+            }
+          }
           for (let j = this.enemies.length - 1; j >= 0; j--) {
             const e = this.enemies[j];
             if (b.hits.has(e.id)) continue;
@@ -1142,6 +1410,27 @@ var SkySim = (function () {
           this.fx.push({ t: 'hit', x: b.x, y: b.y });
           hit = true;
           break;
+        }
+        if (!hit) {
+          for (let j = this.grounds.length - 1; j >= 0; j--) {
+            const g = this.grounds[j], rr = g.r + b.r;
+            if (d2(b.x, b.y, g.x, g.y) > rr * rr) continue;
+            this.damageGround(j, b.dmg, p);
+            this.fx.push({ t: 'hit', x: b.x, y: b.y });
+            hit = true; break;
+          }
+        }
+        if (!hit && this.boss && !this.boss.entering) {
+          const B = this.boss;
+          for (let j = 0; j < B.parts.length; j++) {
+            const pt = B.parts[j];
+            if (!pt.alive) continue;
+            const rr = pt.r + b.r;
+            if (d2(b.x, b.y, B.x + pt.dx, B.y + pt.dy) > rr * rr) continue;
+            this.damagePart(j, b.dmg, p);
+            this.fx.push({ t: 'hit', x: b.x, y: b.y });
+            hit = true; break;
+          }
         }
         if (!hit && this.boss) {
           const B = this.boss, rr = B.r * 0.8 + b.r;
@@ -1200,18 +1489,22 @@ var SkySim = (function () {
       const BM = [];
       for (const b of this.beams) BM.push([b.id, R1(b.x), R1(b.y), R1(b.ang * 100), b.w, b.state === 'fire' ? 1 : 0, Math.round(b.t * 100)]);
       const HB = [];
-      for (const b of this.bullets) if (b.hom || full) HB.push([b.id, R1(b.x), R1(b.y), R1(Math.atan2(b.vy, b.vx) * 100), b.kind]);
+      for (const b of this.bullets) if (b.hom || full) HB.push([b.id, R1(b.x), R1(b.y), R1(Math.atan2(b.vy, b.vx) * 100), b.kind, b.col]);
+      const GT = [];
+      for (const g of this.grounds) GT.push([g.id, g.type, R1(g.x), R1(g.y), R1(g.hp), R1(g.maxHp), R1(g.ang * 100), g.flash > 0 ? 1 : 0]);
 
       const s = {
         t: this.tick, ph: this.phase, phT: Math.round(this.phT * 10) / 10,
         st: this.stage, zone: this.plan ? this.plan.zone : 0, sc: this.score,
         wv: this.waveIdx, wvN: this.plan ? this.plan.waves.length : 0,
-        P, E, K, BM, HB,
+        P, E, K, BM, HB, GT,
         Bn: this.newBullets.filter((b) => !b.hom).map((b) => [b.id, R1(b.x), R1(b.y), R1(b.vx), R1(b.vy), b.kind, b.born, b.col]),
         Bd: this.deadBullets.slice(),
         X: this.fx.slice(),
         B: this.boss ? [this.boss.art, R1(this.boss.x), R1(this.boss.y), R1(this.boss.hp), R1(this.boss.maxHp),
-                        this.boss.name, this.boss.flash > 0 ? 1 : 0, this.boss.phaseIdx, this.boss.entering ? 1 : 0] : null,
+                        this.boss.name, this.boss.flash > 0 ? 1 : 0, this.boss.phaseIdx, this.boss.entering ? 1 : 0,
+                        this.boss.parts.map((q) => [R1(q.dx), R1(q.dy), q.alive ? Math.max(1, R1(q.hp / q.maxHp * 100)) : 0, R1(q.ang * 100), q.flash > 0 ? 1 : 0]),
+                        this.boss.armored ? 1 : 0] : null,
       };
       this.newBullets.length = 0;
       this.deadBullets.length = 0;
@@ -1226,6 +1519,8 @@ var SkySim = (function () {
     P_MAXHP, P_LIVES, P_R, BOMB_MAX, REVIVE_SEC, DOWN_SEC, HIT_INV, CONTACT_DMG,
     Game, stagePlan, buildSpawns, mulberry32, clamp,
     WING, wingCount, CHARGE_MAX, CHARGE_SEC, MEDAL, CHAIN_SEC,
+    SHIP_TYPES, shipType, TERRAIN, TERRAIN_W, TERRAIN_H, GROUND_SPEED, terrainHeight, terrainAt, groundOffset,
+    GROUND_UNITS, ZONE_GROUND, GOLD, ARMOR_MUL,
   };
 })();
 

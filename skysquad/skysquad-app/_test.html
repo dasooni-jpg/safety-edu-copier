@@ -784,6 +784,121 @@ grp('16. 보조기·차지샷·메달');
   eq('스냅샷 아군 줄에 차지·메달 칸이 있음', sn.P[0].length, 17);
 }
 
+/* ═════════ 17. 기체 6종 ═════════ */
+grp('17. 기체 6종');
+{
+  eq('기체가 6종', S.SHIP_TYPES.length, 6);
+  const mk = (color, gun) => { const g = new S.Game({ stage: 1, seed: 5 }); g.addPlayer(1, 'A', color); toPlay(g); const p = g.players.get(1); p.gun = gun; p.x = 300; p.y = 450; p.tx = 300; p.ty = 450; g.bullets.length = 0; p.fireCd = 0; p.wingCd = 9; g.step(); return g; };
+  const angs = (g) => g.bullets.filter((b) => b.own === 1 && b.kind[0] === 'p').map((b) => Math.abs(Math.atan2(b.vy, b.vx)));
+  ok('노을부채는 하늘매보다 넓게 퍼짐', Math.max(...angs(mk(1, 3))) > Math.max(...angs(mk(0, 3))) * 1.5);
+  ok('숲창 총알은 관통함', mk(2, 1).bullets.every((b) => b.kind[0] !== 'p' || b.pierce >= 1));
+  ok('분홍망치 총알은 사거리가 짧음', mk(4, 1).bullets.some((b) => b.own === 1 && b.life < 1));
+  const gb = new S.Game({ stage: 1, seed: 1 }); gb.addPlayer(1, 'A', 5);
+  eq('금빛독수리는 폭탄 하나 더 들고 시작', gb.players.get(1).bombs, 3);
+  const chargeOf = (color) => { const g = mk(color, 1); g.bullets.length = 0; const p = g.players.get(1); p.charge = 3; g.setInput(1, { charge: true }); return g.bullets.filter((b) => b.cg); };
+  eq('하늘매 차지: 거대 포탄 1발', chargeOf(0).length, 1);
+  eq('노을부채 차지: 부채꼴 9발', chargeOf(1).length, 9);
+  ok('숲창 차지: 한 줄로 늘어선 창', (() => { const c = chargeOf(2); return c.length >= 8 && c.every((b) => b.y === c[0].y); })());
+  ok('보라벌 차지: 유도 미사일', chargeOf(3).every((b) => b.hom > 0 && b.kind === 'pm'));
+  ok('분홍망치 차지: 사방으로 퍼짐', (() => { const c = chargeOf(4); return c.some((b) => b.vx < 0) && c.some((b) => b.vy < 0) && c.some((b) => b.vy > 0); })());
+  ok('금빛독수리 차지: 세로 한 줄 폭격', (() => { const c = chargeOf(5); const ys = c.map((b) => b.y); return Math.max(...ys) - Math.min(...ys) > 400; })());
+  // 유도 미사일은 적을 쫓아감
+  const gm = mk(3, 1); gm.enemies.length = 0; gm.spawnQ.length = 0; gm.bullets.length = 0;
+  gm.spawnEnemy({ type: 'scout', hp: 999, spd: 0, fire: 99, gap: 1, count: 1, form: 'line' }, { x: 700, y: 150, delay: 0, pat: 'stop', amp: 0, per: 1, hold: 99 });
+  const ms = gm.addBullet({ x: 340, y: 450, vx: 520, vy: 0, r: 12, dmg: 1, own: 1, kind: 'pm', hom: 4.2, cg: 1 });
+  for (let i = 0; i < 6; i++) gm.stepBullets(S.DT);
+  ok('유도 미사일이 적 쪽으로 방향을 틈', ms.vy < 0);
+  ok('유도 미사일은 스냅샷 유도탄 목록으로 감', gm.snapshot().HB.some((r) => r[4] === 'pm'));
+}
+
+/* ═════════ 18. 지형과 지상 목표물 ═════════ */
+grp('18. 지형·지상 목표물·금괴');
+{
+  eq('우주에는 땅이 없음', S.terrainAt(9, 500, 400, 0), null);
+  let sea = 0, land = 0;
+  for (let x = 0; x < 1600; x += 50) for (let y = 0; y < 900; y += 50) { const t = S.terrainAt(0, x, y, 0); if (t === 'sea') sea++; else if (t === 'land') land++; }
+  ok('섬 지역에는 바다와 땅이 섞여 있음 (바다 ' + sea + ', 땅 ' + land + ')', sea > 40 && land > 40);
+  ok('땅은 한 틱마다 정해진 만큼 흘러감', (() => {
+    for (let k = 0; k < 40; k++) { const x = 300 + k * 29, y = 100 + k * 17; if (S.terrainAt(0, x, y, 100) !== S.terrainAt(0, x - S.GROUND_SPEED * S.DT, y, 101)) return false; }
+    return true;
+  })());
+  const g = toPlay(newGame(3, 2));
+  let spawned = 0, wrong = 0;
+  const seen = new Set();
+  for (let i = 0; i < 1200; i++) {
+    god(g); g.step();
+    for (const t of g.grounds) if (!seen.has(t.id)) {
+      seen.add(t.id); spawned++;
+      const on = S.terrainAt(g.plan.zone, t.x, t.y, g.tick);
+      if ((S.GROUND_UNITS[t.type].on === 'sea') !== (on === 'sea' || on === 'lake')) wrong++;
+    }
+  }
+  ok('지상 목표물이 나옴 (' + spawned + '개)', spawned >= 3);
+  eq('군함은 바다에, 전차는 땅에 나옴', wrong, 0);
+  const g2 = toPlay(newGame(1, 1));
+  g2.grounds.push({ id: 999, type: 'tank', x: 800, y: 400, hp: 10, maxHp: 10, r: 20, ang: Math.PI, fireCd: 9, flash: 0 });
+  const x0 = g2.grounds[0].x; g2.stepGrounds(S.DT);
+  near('지상 목표물은 땅과 같은 빠르기로 흘러감', x0 - g2.grounds[0].x, S.GROUND_SPEED * S.DT, 1e-6);
+  g2.pickups.length = 0;
+  g2.damageGround(0, 999, g2.players.get(1));
+  eq('부수면 사라짐', g2.grounds.length, 0);
+  ok('금괴를 떨어뜨림', g2.pickups.some((k) => k.type === 'gold'));
+  const p = g2.players.get(1), sc = p.score;
+  g2.grab(p, 'gold');
+  ok('금괴를 먹으면 점수와 금괴 수가 오름', p.score > sc && p.sg === 1);
+  const sn = g2.snapshot();
+  ok('스냅샷에 지상 목표물 칸이 있음', Array.isArray(sn.GT));
+  eq('하늘 높은 곳(성층권)에서는 지상 목표물이 없음', S.ZONE_GROUND[8].length, 0);
+}
+
+/* ═════════ 19. 부품 보스 ═════════ */
+grp('19. 부품 보스');
+{
+  const bossGame = (st) => { const g = toPlay(newGame(st, 1)); let n = 0; while (!g.boss && n++ < 9000) { god(g); g.enemies.length = 0; g.spawnQ.length = 0; g.step(); } run(g, 120, god); return g; };
+  const g = bossGame(10);
+  eq('10단계 보스는 포탑 2개', g.boss.parts.length, 2);
+  eq('100단계 보스는 포탑 4개', bossGame(100).boss.parts.length, 4);
+  ok('처음에는 장갑 상태', g.boss.armored === true);
+  const hp0 = g.boss.hp; g.damageBoss(100, null);
+  near('장갑 상태에서는 본체가 35%만 맞음', hp0 - g.boss.hp, 100 * S.ARMOR_MUL, 1e-6);
+  g.fx.length = 0;
+  for (let i = 0; i < g.boss.parts.length; i++) g.damagePart(i, 1e9, g.players.get(1));
+  ok('포탑을 다 부수면 장갑이 벗겨짐', g.boss.armored === false && g.fx.some((f) => f.t === 'armorbreak'));
+  const hp1 = g.boss.hp; g.damageBoss(100, null);
+  near('장갑이 벗겨지면 제대로 맞음', hp1 - g.boss.hp, 100, 1e-6);
+  ok('부서진 포탑마다 금괴', g.pickups.filter((k) => k.type === 'gold').length >= 2);
+  const b = g.snapshot().B;
+  ok('스냅샷에 포탑 정보가 있음', Array.isArray(b[9]) && b[9].length === 2 && b[10] === 0);
+  // 포탑은 총알로도 맞음
+  const g3 = bossGame(10);
+  const pt = g3.boss.parts[0], php = pt.hp;
+  g3.bullets.length = 0;
+  g3.enemies.length = 0; g3.grounds.length = 0;
+  g3.addBullet({ x: g3.boss.x + pt.dx - 10, y: g3.boss.y + pt.dy, vx: 1000, vy: 0, r: 6, dmg: 20, own: 1, kind: 'p1' });
+  g3.collide();
+  ok('포탑은 총알에 맞음', pt.hp < php);
+}
+
+/* ═════════ 20. 결과 화면 ═════════ */
+grp('20. 단계 결과');
+{
+  const clearOnce = (slow) => {
+    const g = toPlay(newGame(2, 2));
+    if (slow) run(g, Math.round(200 / S.DT), (gg) => { god(gg); gg.enemies.length = 0; gg.spawnQ.length = 0; gg.waveIdx = 0; });
+    g.fx.length = 0;
+    let n = 0; while (g.phase === 'play' && n++ < 6000) { god(g); g.enemies.length = 0; g.spawnQ.length = 0; g.step(); }
+    return g.fx.find((f) => f.t === 'clear') || (g.snapshot(), null);
+  };
+  const fast = clearOnce(false);
+  ok('클리어하면 결과가 나옴', !!fast && Array.isArray(fast.P) && fast.P.length === 2);
+  ok('결과에 걸린 시간과 시간 보너스', fast && fast.time > 0 && fast.timeBonus >= 0);
+  const slow = clearOnce(true);
+  ok('빨리 깨면 시간 보너스가 더 큼 (' + (fast && fast.timeBonus) + ' > ' + (slow && slow.timeBonus) + ')', fast && slow && fast.timeBonus > slow.timeBonus);
+  const g = toPlay(newGame(1, 1)); const p = g.players.get(1);
+  g.grab(p, 'star'); g.grab(p, 'gold');
+  ok('단계 기록: 메달·금괴 수를 셈', p.sm === 1 && p.sg === 1);
+}
+
 } catch (err) {
   ok('테스트가 끝까지 돌아감', false, (err && err.message) + '  ·  ' + String(err && err.stack).split('\n').slice(0, 3).join(' ← '));
 }
