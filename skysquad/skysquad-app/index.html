@@ -75,6 +75,11 @@
   @keyframes sweep{60%,100%{transform:translateX(120%)}}
   .ships button{transition:transform .15s}
   .ships button:hover{transform:translateY(-2px)}
+  .ships button{position:relative}
+  .ships button.locked canvas{filter:grayscale(1) brightness(.45)}
+  .ships button.locked::after{content:"🔒";position:absolute;right:4px;bottom:2px;font-size:14px}
+  .orient{flex-wrap:wrap}
+  #sizeNow{color:#8ea6cc;font-size:12px}
   .ships button.on canvas{animation:bob 1.6s ease-in-out infinite}
   @keyframes bob{50%{transform:translateY(-3px)}}
 
@@ -164,6 +169,9 @@
       <div class="row"><label class="lb">화면 방향</label>
         <div class="orient"><button data-o="v">📱 세로 (1945식)</button><button data-o="h">🖥 가로 (넓게)</button></div>
       </div>
+      <div class="row"><label class="lb">비행기·총알 크기 <span id="sizeNow"></span></label>
+        <div class="orient sizes"><button data-z="auto">자동(추천)</button><button data-z="1">보통</button><button data-z="1.25">크게</button><button data-z="1.5">아주 크게</button></div>
+      </div>
 
       <div class="tabs">
         <button data-tab="make" class="on">방 만들기</button>
@@ -209,6 +217,7 @@
         <b>조작</b> — 마우스·손가락을 움직이면 비행기가 따라옵니다(총은 자동). <b>스페이스</b> 또는 오른쪽 아래 💣 버튼으로 폭탄.
         키보드 방향키/WASD 로도 움직일 수 있어요.<br>
         <b>⚡ 차지샷</b> — 비행기 둘레 게이지가 저절로 찹니다. <b>X 키</b>나 ⚡ 버튼으로 모든 적을 뚫는 큰 포탄 발사.<br>
+        <b>🔒 비행기 해금</b> — 처음에는 하늘매만 탈 수 있어요. 3·6·11·16·21단계에 도착할 때마다 새 비행기가 하나씩 열립니다.<br>
         <b>보조기·메달</b> — P 를 먹을수록 작은 보조기가 붙어 같이 쏩니다(최대 4대). 금메달은 이어서 먹을수록 점수가 커집니다(최대 2000).<br>
         <b>협동</b> — 친구가 격추되면 <b>가까이 날아가 2초만 버티면</b> 살릴 수 있습니다. 다 같이 쓰러지면 그 단계를 처음부터 다시 합니다.
       </div>
@@ -253,6 +262,13 @@ let VIEW = { s: 1, ox: 0, oy: 0, w: 0, h: 0, dpr: 1 };
 let VERT = localStorage.getItem('sky.vert') !== 'h';
 let VW = F.w, VH = F.h;              // 화면에 보이는 판의 가로·세로(논리 단위)
 const UP = () => (VERT ? Math.PI / 2 : 0);   // 글자를 화면에 똑바로 세우려면 이만큼 돌립니다
+/* 비행기·총알 그림 크기 배율 — 맞는 판정(히트박스)은 그대로이고 그림만 커집니다.
+ * 'auto' 는 세로 판이 작게 보이는 기기(가로로 긴 태블릿·모니터)에서 저절로 키웁니다. */
+let SIZE_PICK = localStorage.getItem('sky.size') || 'auto';
+let ZS = 1;
+function calcZS() {
+  ZS = SIZE_PICK === 'auto' ? (VIEW.s < .5 ? 1.4 : VIEW.s < .62 ? 1.25 : 1) : (+SIZE_PICK || 1);
+}
 function resize() {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = window.innerWidth, h = window.innerHeight;
@@ -262,6 +278,7 @@ function resize() {
   const s = Math.min(w / VW, h / VH);
   VIEW = { s, ox: (w - VW * s) / 2, oy: (h - VH * s) / 2, w, h, dpr };
   document.body.classList.toggle('vert', VERT);
+  calcZS();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -1661,8 +1678,8 @@ const GROUND_ART = {
   },
 };
 const groundSprite = (type) => sprite('g_' + type, 130, 60, (g) => GROUND_ART[type](g));
-function drawTurret(g, x, y, ang, len, w, twin, col) {
-  g.save(); g.translate(x, y); g.rotate(ang);
+function drawTurret(g, x, y, ang, len, w, twin, col, sc) {
+  g.save(); g.translate(x, y); if (sc) g.scale(sc, sc); g.rotate(ang);
   g.fillStyle = '#2b2f26';
   if (twin) { g.fillRect(4, -5, len, 3); g.fillRect(4, 2, len, 3); } else g.fillRect(4, -w / 2, len, w);
   g.fillStyle = col || '#6c7250'; g.beginPath(); g.arc(0, 0, w + 4, 0, TAU); g.fill();
@@ -1688,16 +1705,15 @@ function drawGroundUnits(g, A, B, k, dt) {
     const type = r[1], ang = r[6] / 100, fl = r[7];
     const spr = groundSprite(type);
     const hullAng = type === 'bunker' || type === 'aa' ? 0 : Math.PI * 0;   // 전차·배는 왼쪽(흐르는 쪽)을 봄
-    g.save(); g.translate(x, y);
-    if (type === 'tank' || type === 'ship') g.scale(1, 1);
+    g.save(); g.translate(x, y); g.scale(ZS, ZS);
     g.drawImage(spr, -spr._w / 2, -spr._h / 2, spr._w, spr._h);
     if (fl) { g.globalAlpha = .5; g.drawImage(flashOf(spr), -spr._w / 2, -spr._h / 2, spr._w, spr._h); g.globalAlpha = 1; }
     g.restore();
-    if (type === 'tank') drawTurret(g, x, y, ang, 20, 5, false, '#7a8054');
-    else if (type === 'aa') drawTurret(g, x, y, ang, 18, 4, true, '#8a8a80');
-    else if (type === 'bunker') { g.save(); g.translate(x, y); g.rotate(ang); g.fillStyle = '#1a1a16'; g.fillRect(8, -2.5, 12, 5); g.restore(); }
-    else if (type === 'ship') { drawTurret(g, x - 18, y, ang, 16, 4, true, '#7a808c'); drawTurret(g, x + 30, y, ang, 14, 4, false, '#7a808c'); }
-    if (r[4] < r[5]) hpBar(g, x, y, 30, r[4] / r[5]);
+    if (type === 'tank') drawTurret(g, x, y, ang, 20, 5, false, '#7a8054', ZS);
+    else if (type === 'aa') drawTurret(g, x, y, ang, 18, 4, true, '#8a8a80', ZS);
+    else if (type === 'bunker') { g.save(); g.translate(x, y); g.scale(ZS, ZS); g.rotate(ang); g.fillStyle = '#1a1a16'; g.fillRect(8, -2.5, 12, 5); g.restore(); }
+    else if (type === 'ship') { drawTurret(g, x - 18 * ZS, y, ang, 16, 4, true, '#7a808c', ZS); drawTurret(g, x + 30 * ZS, y, ang, 14, 4, false, '#7a808c', ZS); }
+    if (r[4] < r[5]) hpBar(g, x, y, 30 * ZS, r[4] / r[5]);
   }
 }
 function drawShadows(g, A, B, k) {
@@ -1705,7 +1721,7 @@ function drawShadows(g, A, B, k) {
   const enA = byId(A.E);
   for (const r of B.E) {
     const p = enA.get(r[0]);
-    dropShadow(g, enemySprite(r[1]), p ? lerp(p[2], r[2], k) : r[2], p ? lerp(p[3], r[3], k) : r[3], r[6] / 100 - Math.PI, 1);
+    dropShadow(g, enemySprite(r[1]), p ? lerp(p[2], r[2], k) : r[2], p ? lerp(p[3], r[3], k) : r[3], r[6] / 100 - Math.PI, ZS);
   }
   const plA = byId(A.P);
   for (const r of B.P) {
@@ -1713,8 +1729,8 @@ function drawShadows(g, A, B, k) {
     const p = plA.get(r[0]);
     const x = p ? lerp(p[1], r[1], k) : r[1], y = p ? lerp(p[2], r[2], k) : r[2];
     const spr = shipSprite(colorOf(r[0]));
-    dropShadow(g, spr, x, y, r[11] / 100, 1);
-    for (const w of G.wing.get(r[0]) || []) dropShadow(g, spr, w.x, w.y, 0, .62);
+    dropShadow(g, spr, x, y, r[11] / 100, ZS);
+    for (const w of G.wing.get(r[0]) || []) dropShadow(g, spr, w.x, w.y, 0, .62 * ZS);
   }
 }
 
@@ -1798,9 +1814,9 @@ function drawWorld(g, it, dt) {
     }
     // 맞았을 때는 원래 그림 위에 흰색을 반쯤 덮습니다.
     // 통째로 하얗게 바꾸면 다섯 명이 쉬지 않고 쏘는 동안 적이 흰 덩어리로만 보입니다.
-    blit(g, spr, x, y, ang - Math.PI, 1);
-    if (fl) blit(g, flashOf(spr), x, y, ang - Math.PI, 1, .55);
-    if (hp < mx) hpBar(g, x, y, 34, hp / mx);
+    blit(g, spr, x, y, ang - Math.PI, ZS);
+    if (fl) blit(g, flashOf(spr), x, y, ang - Math.PI, ZS, .55);
+    if (hp < mx) hpBar(g, x, y, 34 * ZS, hp / mx);
   }
 
   // ── 보스 ──
@@ -1890,9 +1906,9 @@ function drawWorld(g, it, dt) {
     const spr = shipSprite(ci);
     const wings = wingPos(id, x, y, S.wingCount(gun));
     for (const w of wings) {
-      g.save(); g.translate(w.x, w.y); g.rotate(lean * .6); g.scale(.62, .62 * (1 - bank * .7));
+      g.save(); g.translate(w.x, w.y); g.rotate(lean * .6); g.scale(.62 * ZS, .62 * ZS * (1 - bank * .7));
       g.drawImage(spr, -spr._w / 2, -spr._h / 2, spr._w, spr._h); g.restore();
-      drawProp(g, w.x, w.y, 0, .62, gameT + w.y, ci);
+      drawProp(g, w.x, w.y, 0, .62 * ZS, gameT + w.y, ci);
     }
     // 날개 끝 비행운 + 내 비행기 은은한 빛
     if (mine && GFX.hi) { g.globalCompositeOperation = 'lighter'; glowAt(g, C.glow, x, y, 58, .12); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; }
@@ -1908,11 +1924,11 @@ function drawWorld(g, it, dt) {
         const a0 = -Math.PI / 2 + i * TAU / 3 + .12, span = TAU / 3 - .24;
         const f = clamp(chg - i, 0, 1);
         g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 5;
-        g.beginPath(); g.arc(x, y, 46, a0, a0 + span); g.stroke();
+        g.beginPath(); g.arc(x, y, 46 * ZS, a0, a0 + span); g.stroke();
         if (f > 0) {
           g.strokeStyle = full ? (Math.sin(gameT * 12) > 0 ? '#ffffff' : C.glow) : f >= 1 ? C.glow : 'rgba(255,255,255,.55)';
           g.lineWidth = 3.4;
-          g.beginPath(); g.arc(x, y, 46, a0, a0 + span * f); g.stroke();
+          g.beginPath(); g.arc(x, y, 46 * ZS, a0, a0 + span * f); g.stroke();
         }
       }
     }
@@ -1924,11 +1940,11 @@ function drawWorld(g, it, dt) {
       sg.addColorStop(0, 'rgba(120,220,255,0)'); sg.addColorStop(.7, 'rgba(120,220,255,.35)'); sg.addColorStop(1, 'rgba(200,240,255,.7)');
       g.fillStyle = sg; g.beginPath(); g.arc(x, y, 40, 0, TAU); g.fill(); g.restore();
     }
-    g.save(); g.translate(x, y); g.rotate(ang + lean); g.scale(1, 1 - bank);
+    g.save(); g.translate(x, y); g.rotate(ang + lean); g.scale(ZS, ZS * (1 - bank));
     g.globalAlpha = inv ? (Math.sin(gameT * 26) > 0 ? .35 : .95) : 1;
     g.drawImage(spr, -spr._w / 2, -spr._h / 2, spr._w, spr._h);
     g.restore(); g.globalAlpha = 1;
-    drawProp(g, x, y, ang + lean, 1, gameT + id, ci);
+    drawProp(g, x, y, ang + lean, ZS, gameT + id, ci);
 
     // 이름표 + 체력 (화면 기준으로 비행기 아래)
     g.save(); g.translate(x, y); g.rotate(UP());
@@ -1936,11 +1952,12 @@ function drawWorld(g, it, dt) {
     const nm = nameOf(id) || '조종사';
     g.fillStyle = mine ? '#ffd166' : 'rgba(255,255,255,.86)';
     g.strokeStyle = 'rgba(0,0,0,.7)'; g.lineWidth = 3;
-    g.strokeText(nm, 0, 60); g.fillText(nm, 0, 60);
+    const ny = 60 * ZS;
+    g.strokeText(nm, 0, ny); g.fillText(nm, 0, ny);
     const bw = 46;
-    g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(-bw / 2, 66, bw, 5);
+    g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(-bw / 2, ny + 6, bw, 5);
     g.fillStyle = hp > 55 ? '#8ef0b6' : hp > 25 ? '#ffd166' : '#ff7a8a';
-    g.fillRect(-bw / 2, 66, bw * clamp(hp / S.P_MAXHP, 0, 1), 5);
+    g.fillRect(-bw / 2, ny + 6, bw * clamp(hp / S.P_MAXHP, 0, 1), 5);
     g.restore();
   }
 }
@@ -2058,6 +2075,12 @@ function enemyBulletSprite(kind) {
   });
 }
 function drawBullet(g, kind, x, y, a, col) {
+  if (ZS === 1) return drawBulletRaw(g, kind, x, y, a, col);
+  g.save(); g.translate(x, y); g.scale(ZS, ZS);
+  drawBulletRaw(g, kind, 0, 0, a, col);
+  g.restore();
+}
+function drawBulletRaw(g, kind, x, y, a, col) {
   if (kind === 'pc') {   // 차지샷: 조종사 색의 거대한 빛 포탄
     const C = SHIP_COLORS[(col || 0) % 6];
     const wob = 1 + Math.sin(gameT * 30) * .08;
@@ -2115,6 +2138,12 @@ const PICK_INFO = {
   star: { c: '#ffd166', t: '★', n: '메달' }, gold: { c: '#ffd166', t: '▰', n: '금괴' },
 };
 function drawPickup(g, type, x, y) {
+  if (ZS === 1) return drawPickupRaw(g, type, x, y);
+  g.save(); g.translate(x, y); g.scale(ZS, ZS);
+  drawPickupRaw(g, type, 0, 0);
+  g.restore();
+}
+function drawPickupRaw(g, type, x, y) {
   const I = PICK_INFO[type] || PICK_INFO.star;
   if (type === 'star') {   // 금메달: 빙글빙글 돌며 반짝임
     const sx = Math.cos(gameT * 5 + x * .03);
@@ -2566,7 +2595,20 @@ $('#btnFull').addEventListener('click', () => {
 });
 
 /* ═══════════════════ 메뉴 ═══════════════════ */
-let myColor = Math.floor(Math.random() * 6);
+/* ── 기체 해금 (선생님 설정값) ──
+ *  이 기기에서 도달한 가장 높은 단계가 아래 값 이상이면 그 비행기가 열립니다.
+ *  순서: 하늘매 · 노을부채 · 숲창 · 보라벌 · 분홍망치 · 금빛독수리
+ *  모두 열기: 주소 끝에 ?unlockall=1 (되돌리기: ?unlockall=0) — 기기마다 한 번만 하면 기억됩니다. */
+const UNLOCK_STAGE = [1, 3, 6, 11, 16, 21];
+(function unlockParam() {
+  const q = new URLSearchParams(location.search).get('unlockall');
+  if (q === '1') localStorage.setItem('sky.unlockall', '1');
+  if (q === '0') localStorage.removeItem('sky.unlockall');
+})();
+const allOpen = () => localStorage.getItem('sky.unlockall') === '1';
+const shipOpen = (i) => allOpen() || unlocked() >= UNLOCK_STAGE[i % 6];
+const openCount = () => [0, 1, 2, 3, 4, 5].filter(shipOpen).length;
+let myColor = 0;
 function buildShipPicker() {
   const box = $('#ships');
   box.innerHTML = '';
@@ -2579,7 +2621,14 @@ function buildShipPicker() {
     drawShipArt(g, C, i);
     b.appendChild(c);
     if (i === myColor) b.classList.add('on');
+    const open = shipOpen(i);
+    if (!open) { b.classList.add('locked'); b.title = '🔒 ' + UNLOCK_STAGE[i] + '단계에 도착하면 열려요'; }
     b.addEventListener('click', () => {
+      if (!open) {
+        const T = S.SHIP_TYPES[i];
+        $('#shipInfo').innerHTML = '🔒 <b>' + T.name + '</b> — <b>' + UNLOCK_STAGE[i] + '단계</b>에 도착하면 열려요 (지금 최고 ' + unlocked() + '단계) · ' + T.desc;
+        return;
+      }
       myColor = i;
       [...box.children].forEach((x, j) => x.classList.toggle('on', j === i));
       localStorage.setItem('sky.color', i);
@@ -2602,14 +2651,25 @@ showShipInfo();
 function setOrient(v) {
   VERT = v;
   localStorage.setItem('sky.vert', v ? 'v' : 'h');
-  document.querySelectorAll('.orient button').forEach((b) => b.classList.toggle('on', (b.dataset.o === 'v') === v));
+  document.querySelectorAll('.orient:not(.sizes) button').forEach((b) => b.classList.toggle('on', (b.dataset.o === 'v') === v));
   $('#rotDir').textContent = v ? '세로로' : '가로로';
   $('#rotAlt').textContent = v ? '(또는 나가서 화면 방향을 "가로"로 바꾸세요)' : '(또는 나가서 화면 방향을 "세로"로 바꾸세요)';
   G.wing.clear();
   resize();
+  setSize(SIZE_PICK);   // 방향이 바뀌면 '자동' 크기도 다시 계산
 }
-document.querySelectorAll('.orient button').forEach((b) => b.addEventListener('click', () => setOrient(b.dataset.o === 'v')));
+document.querySelectorAll('.orient:not(.sizes) button').forEach((b) => b.addEventListener('click', () => setOrient(b.dataset.o === 'v')));
 setOrient(VERT);
+function setSize(z) {
+  SIZE_PICK = z;
+  localStorage.setItem('sky.size', z);
+  document.querySelectorAll('.sizes button').forEach((b) => b.classList.toggle('on', b.dataset.z === z));
+  calcZS();
+  $('#sizeNow').textContent = '— 지금 ' + Math.round(ZS * 100) + '% (맞는 판정은 그대로)';
+}
+document.querySelectorAll('.sizes button').forEach((b) => b.addEventListener('click', () => setSize(b.dataset.z)));
+setSize(SIZE_PICK);
+window.addEventListener('resize', () => setSize(SIZE_PICK));
 
 $('#nick').value = localStorage.getItem('sky.nick') || '';
 // 지난번에 쓰던 방 코드를 미리 넣어 둡니다 (다음 시간에 이어서 하기 편하도록)
@@ -2619,7 +2679,7 @@ if (lastRoom) {
   setTimeout(() => $('#code').dispatchEvent(new Event('input')), 60);
 }
 const savedColor = localStorage.getItem('sky.color');
-if (savedColor !== null) { myColor = +savedColor; buildShipPicker(); showShipInfo(); }
+if (savedColor !== null && shipOpen(+savedColor)) { myColor = +savedColor; buildShipPicker(); showShipInfo(); }
 
 document.querySelectorAll('.tabs button').forEach((b) => {
   b.addEventListener('click', () => {
@@ -2705,7 +2765,20 @@ $('#btnSolo').addEventListener('click', () => {
 });
 
 // 이 기기 최고 기록 갱신
-setInterval(() => { if (G.mode !== 'menu') setUnlocked(G.stage); }, 2000);
+// 최고 기록 갱신 + 새 비행기가 열렸으면 알림
+setInterval(() => {
+  if (G.mode === 'menu') return;
+  const before = openCount();
+  setUnlocked(G.stage);
+  if (openCount() > before) {
+    const names = [0, 1, 2, 3, 4, 5].filter((i) => shipOpen(i) && UNLOCK_STAGE[i] > 1 && unlocked() - UNLOCK_STAGE[i] < 3).map((i) => S.SHIP_TYPES[i].name);
+    const nm = names[names.length - 1] || '새 비행기';
+    G.banner = { big: '✈ 새 비행기 해금!', sub: nm + ' — 다음 출격 때 고를 수 있어요', kind: 'clear' }; G.bannerT = 3.2;
+    toast('🔓 ' + nm + ' 열림!', '#ffd166');
+    SFX.lvup();
+    buildShipPicker();
+  }
+}, 2000);
 
 requestAnimationFrame(frame);
 window.SkyClient = { G, S, SHIP_COLORS, drawShipArt, ART, BOSS_ART };
