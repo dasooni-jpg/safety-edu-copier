@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>하늘편대 100 — 자동 테스트</title>
+<style>
+  body{font:14px/1.6 "Malgun Gothic",system-ui,sans-serif;background:#0b1020;color:#dfe8ff;margin:0;padding:24px}
+  h1{font-size:20px;margin:0 0 6px}
+  #sum{position:sticky;top:0;background:#0b1020;padding:10px 0 14px;border-bottom:1px solid #22304d;margin-bottom:12px;z-index:2}
+  .big{font-size:26px;font-weight:800}
+  .ok{color:#8ef0b6}.bad{color:#ff8a9a}
+  .grp{margin:16px 0 6px;font-weight:800;color:#ffd166;border-left:3px solid #ffd166;padding-left:8px}
+  .t{padding:2px 0 2px 18px;font-size:13px}
+  .t.f{color:#ff8a9a;background:rgba(255,80,110,.09)}
+  .t.p{color:#9fd4ff}
+  code{color:#ffd9a0}
+</style>
+</head>
+<body>
+<h1>🛩 하늘편대 100 — 시뮬레이션 자동 테스트</h1>
+<div id="sum" class="big">돌리는 중…</div>
+<div id="out"></div>
+
+<script src="sim.js"></script>
+<script>
+(function () {
+'use strict';
+const S = window.SkySim;
+let pass = 0, fail = 0;
+const out = document.getElementById('out');
+
+function grp(name) { const d = document.createElement('div'); d.className = 'grp'; d.textContent = name; out.appendChild(d); }
+function ok(name, cond, extra) {
+  const d = document.createElement('div');
+  if (cond) { pass++; d.className = 't p'; d.textContent = '✔ ' + name; }
+  else { fail++; d.className = 't f'; d.textContent = '✘ ' + name + (extra ? '  — ' + extra : ''); }
+  out.appendChild(d);
+}
+function eq(name, a, b) { ok(name, a === b, 'got ' + JSON.stringify(a) + ', want ' + JSON.stringify(b)); }
+function near(name, a, b, tol) { ok(name, Math.abs(a - b) <= (tol || 1e-6), 'got ' + a + ', want ~' + b); }
+
+/* 게임을 원하는 상태까지 돌리는 도우미 */
+function run(g, ticks, each) {
+  for (let i = 0; i < ticks; i++) { g.step(); if (each) each(g, i); }
+  return g;
+}
+function newGame(stage, players) {
+  const g = new S.Game({ stage: stage || 1, seed: 4242, best: 100 });
+  const n = players === undefined ? 1 : players;
+  for (let i = 0; i < n; i++) g.addPlayer(i + 1, 'P' + (i + 1), i);
+  return g;
+}
+function toPlay(g) {   // ready 를 지나 play 로
+  let n = 0;
+  while (g.phase === 'ready' && n++ < 200) g.step();
+  return g;
+}
+const god = (g) => { for (const p of g.players.values()) { p.invT = 999; p.hp = S.P_MAXHP; } };
+
+// 어디선가 예외가 나면 조용히 멈추지 않고 실패 항목으로 보여 줍니다.
+try {
+
+/* ═════════ 1. 도감·상수 무결성 ═════════ */
+grp('1. 도감과 상수');
+eq('지역이 10곳', S.ZONES.length, 10);
+eq('보스가 10기', S.BOSSES.length, 10);
+eq('로스터가 10줄', S.ROSTER.length, 10);
+eq('총 단계 100', S.TOTAL_STAGES, 100);
+eq('무기 단계 5', S.GUN_MAX, 5);
+ok('무기표가 1~5 모두 있음', S.GUNS.length === 6 && S.GUNS.slice(1).every((g) => g && g.shots.length > 0));
+ok('무기는 단계가 오를수록 총알이 늘거나 세짐', (() => {
+  for (let i = 1; i < 5; i++) {
+    const a = S.GUNS[i], b = S.GUNS[i + 1];
+    const da = a.shots.reduce((s, x) => s + x.dmg, 0), db = b.shots.reduce((s, x) => s + x.dmg, 0);
+    if (db <= da) return false;
+  }
+  return true;
+})());
+ok('로스터의 적이 모두 도감에 있음', S.ROSTER.every((row) => row.every((t) => !!S.ENEMY[t])));
+ok('분열기가 가리키는 적도 도감에 있음',
+  Object.values(S.ENEMY).every((e) => !e.split || !!S.ENEMY[e.split]));
+ok('보스마다 이름·그림·단계별 공격이 있음', S.BOSSES.every((b) =>
+  b.name && b.art && b.phases.length >= 2 && b.phases.every((p) => p.atk.length >= 1 && p.move)));
+ok('보스 체력이 뒤로 갈수록 커짐', (() => {
+  for (let i = 1; i < S.BOSSES.length; i++) if (S.BOSSES[i].hp <= S.BOSSES[i - 1].hp) return false;
+  return true;
+})());
+ok('보스 공격 종류가 모두 아는 것', S.BOSSES.every((b) => b.phases.every((p) => p.atk.every((a) =>
+  ['radial', 'spread', 'aimed', 'rain', 'wall', 'spiral', 'homing', 'beam', 'split', 'summon', 'clone'].includes(a.k)))));
+ok('보스가 부르는 부하도 도감에 있음', S.BOSSES.every((b) => b.phases.every((p) => p.atk.every((a) =>
+  a.k !== 'summon' || !!S.ENEMY[a.type]))));
+
+/* ═════════ 2. 단계 설계 ═════════ */
+grp('2. 100단계 설계');
+ok('1~100단계가 모두 만들어짐', (() => { for (let i = 1; i <= 100; i++) if (!S.stagePlan(i)) return false; return true; })());
+ok('10의 배수는 보스 단계', (() => {
+  for (let i = 1; i <= 100; i++) if (S.stagePlan(i).isBoss !== (i % 10 === 0)) return false;
+  return true;
+})());
+ok('보스 단계마다 그 지역 보스가 붙음', (() => {
+  for (let i = 10; i <= 100; i += 10) {
+    const p = S.stagePlan(i);
+    if (!p.boss || p.boss.key !== S.BOSSES[p.zone].key) return false;
+  }
+  return true;
+})());
+ok('지역이 10단계마다 넘어감', S.stagePlan(1).zone === 0 && S.stagePlan(10).zone === 0
+  && S.stagePlan(11).zone === 1 && S.stagePlan(100).zone === 9);
+ok('그 지역에 나오는 적만 등장', (() => {
+  for (let i = 1; i <= 100; i++) {
+    const p = S.stagePlan(i);
+    for (const w of p.waves) if (!S.ROSTER[p.zone].includes(w.type)) return false;
+  }
+  return true;
+})());
+ok('한 단계 안에서 같은 적이 연달아 나오지 않음', (() => {
+  for (let i = 1; i <= 100; i++) {
+    const w = S.stagePlan(i).waves;
+    for (let k = 1; k < w.length; k++) if (w[k].type === w[k - 1].type) return false;
+  }
+  return true;
+})());
+ok('한 단계 안에서 같은 대열이 연달아 나오지 않음', (() => {
+  for (let i = 1; i <= 100; i++) {
+    const w = S.stagePlan(i).waves;
+    for (let k = 1; k < w.length; k++) if (w[k].form === w[k - 1].form) return false;
+  }
+  return true;
+})());
+ok('어느 단계든 적이 두 종류 이상 나옴', (() => {
+  for (let i = 1; i <= 100; i++) {
+    if (new Set(S.stagePlan(i).waves.map((w) => w.type)).size < 2) return false;
+  }
+  return true;
+})());
+ok('1지역부터 적이 세 종류 이상', S.ROSTER.every((r) => r.length >= 3));
+ok('웨이브가 2~7개', (() => {
+  for (let i = 1; i <= 100; i++) { const n = S.stagePlan(i).waves.length; if (n < 2 || n > 7) return false; }
+  return true;
+})());
+ok('같은 단계는 언제나 똑같이 나옴(시드 고정)',
+  JSON.stringify(S.stagePlan(37)) === JSON.stringify(S.stagePlan(37)));
+ok('뒤 단계가 앞 단계보다 단단함', (() => {
+  const a = S.stagePlan(5).waves[0].hp / S.ENEMY[S.stagePlan(5).waves[0].type].hp;
+  const b = S.stagePlan(95).waves[0].hp / S.ENEMY[S.stagePlan(95).waves[0].type].hp;
+  return b > a * 3;
+})());
+ok('사격 간격이 뒤로 갈수록 짧아짐', (() => {
+  const f1 = S.stagePlan(1).tier, f2 = S.stagePlan(100).tier;
+  return f1 === 0 && Math.abs(f2 - 1) < 1e-9;
+})());
+ok('101단계를 부르면 100으로 잘림', S.stagePlan(150).n === 100);
+ok('대열 위치가 화면 안(세로)·화면 밖(가로)에서 시작', (() => {
+  for (let i = 1; i <= 100; i += 7) {
+    const p = S.stagePlan(i);
+    for (const w of p.waves) {
+      for (const s of S.buildSpawns(w, S.mulberry32(1))) {
+        if (s.y < 80 || s.y > S.FIELD.h - 80) return false;
+        if (s.x <= S.FIELD.w) return false;
+        if (s.delay < 0) return false;
+      }
+    }
+  }
+  return true;
+})());
+ok('대열 인원과 실제 등장 수가 같음', (() => {
+  for (let i = 1; i <= 40; i += 3) {
+    for (const w of S.stagePlan(i).waves) if (S.buildSpawns(w, S.mulberry32(9)).length !== w.count) return false;
+  }
+  return true;
+})());
+
+/* ═════════ 3. 방·사람 ═════════ */
+grp('3. 방과 조종사');
+{
+  const g = new S.Game({ stage: 1, seed: 1 });
+  eq('아무도 없으면 idle', g.phase, 'idle');
+  g.addPlayer(1, '하늘', 0);
+  eq('한 명 들어오면 준비 단계 시작', g.phase, 'ready');
+  eq('이름은 8글자까지', g.addPlayer(2, '아주아주아주아주긴이름', 1).name.length, 8);
+  for (let i = 3; i <= S.MAX_PLAYERS; i++) g.addPlayer(i, 'P' + i, i % 6);
+  eq('정원까지 들어감', g.players.size, S.MAX_PLAYERS);
+  eq('정원이 넘으면 거절', g.addPlayer(99, '늦둥이', 0), null);
+  g.removePlayer(1);
+  eq('나가면 한 명 줄어듦', g.players.size, S.MAX_PLAYERS - 1);
+  const g2 = newGame(1, 1);
+  g2.removePlayer(1);
+  eq('마지막 사람이 나가면 idle', g2.phase, 'idle');
+  const g3 = newGame(1, 1);
+  g3.setInput(1, { tx: -900, ty: 99999 });
+  const p = g3.players.get(1);
+  ok('입력은 경기장 안으로 잘림', p.tx === 0 && p.ty === S.FIELD.h);
+  g3.setInput(1, { tx: NaN, ty: 'abc' });
+  ok('이상한 입력은 무시', p.tx === 0 && p.ty === S.FIELD.h);
+  g3.setInput(999, { tx: 100, ty: 100 });
+  ok('없는 사람 입력은 그냥 넘어감', true);
+}
+
+/* ═════════ 4. 조종 ═════════ */
+grp('4. 비행과 자동 사격');
+{
+  const g = toPlay(newGame(1, 1));
+  const p = g.players.get(1);
+  p.x = 100; p.y = 100;
+  g.setInput(1, { tx: 800, ty: 100 });
+  const before = p.x;
+  g.step();
+  ok('목표를 향해 움직임', p.x > before);
+  ok('한 틱에 최대 속도보다 더 가지 못함', p.x - before <= 660 * S.DT + 0.001);
+  run(g, 60);
+  near('목표에 도착하면 멈춤', p.x, 800, 2);
+  ok('경기장 밖으로 못 나감', (() => {
+    g.setInput(1, { tx: 99999, ty: 99999 });
+    run(g, 120);
+    return p.x <= S.FIELD.w && p.y <= S.FIELD.h;
+  })());
+  const g2 = toPlay(newGame(1, 1));
+  const n0 = g2.bullets.filter((b) => b.own === 1).length;
+  run(g2, 12);
+  ok('버튼을 안 눌러도 자동으로 쏨', g2.bullets.filter((b) => b.own === 1).length > n0);
+  const g3 = toPlay(newGame(1, 1));
+  const p3 = g3.players.get(1);
+  p3.gun = 5;
+  g3.bullets.length = 0; p3.fireCd = 0;
+  g3.step();
+  eq('Lv5 는 한 번에 6발', g3.bullets.filter((b) => b.own === 1).length, 6);
+  ok('Lv5 는 뒤로도 한 발 쏨', g3.bullets.some((b) => b.own === 1 && b.vx < 0));
+}
+
+/* ═════════ 5. 웨이브·스테이지 진행 ═════════ */
+grp('5. 단계 진행');
+{
+  const g = newGame(1, 1);
+  eq('처음은 ready', g.phase, 'ready');
+  toPlay(g);
+  eq('준비가 끝나면 play', g.phase, 'play');
+  run(g, 40, god);
+  ok('적이 등장함', g.enemies.length > 0);
+  eq('첫 웨이브가 시작됨', g.waveIdx, 1);
+
+  // 적을 전부 없애면 다음 웨이브로 넘어가야 합니다
+  const g2 = toPlay(newGame(1, 1));
+  let guard = 0;
+  while (g2.waveIdx < 2 && guard++ < 2000) { god(g2); g2.enemies.length = 0; g2.spawnQ.length = 0; g2.step(); }
+  ok('적을 다 잡으면 다음 웨이브', g2.waveIdx >= 2);
+
+  // 스테이지 클리어
+  const g3 = toPlay(newGame(1, 1));
+  guard = 0;
+  while (g3.phase === 'play' && guard++ < 6000) { god(g3); g3.enemies.length = 0; g3.spawnQ.length = 0; g3.step(); }
+  eq('모든 웨이브를 끝내면 클리어', g3.phase, 'clear');
+  ok('클리어 보너스가 붙음', g3.score > 0);
+  guard = 0;
+  while (g3.phase === 'clear' && guard++ < 400) g3.step();
+  eq('다음 단계로 넘어감', g3.stage, 2);
+  eq('다음 단계는 다시 준비 단계', g3.phase, 'ready');
+}
+
+/* ═════════ 6. 피격·격추·구조 ═════════ */
+grp('6. 격추와 구조');
+{
+  const g = toPlay(newGame(1, 1));
+  const p = g.players.get(1);
+  const dm = g.dmgMul;
+  ok('1단계는 피해가 절반 남짓 (' + dm.toFixed(2) + '배)', dm > 0.5 && dm < 0.6);
+  p.invT = 0;
+  g.hurtPlayer(p, 30);
+  near('맞으면 체력이 줄어듦', p.hp, S.P_MAXHP - 30 * dm, 0.001);
+  ok('맞은 직후엔 잠깐 무적', p.invT > 0);
+  g.hurtPlayer(p, 30);
+  near('그 사이에는 또 안 맞음', p.hp, S.P_MAXHP - 30 * dm, 0.001);
+  p.invT = 0; p.shieldT = 5;
+  g.hurtPlayer(p, 30);
+  ok('보호막이 한 번 막아 줌', Math.abs(p.hp - (S.P_MAXHP - 30 * dm)) < 0.001 && p.shieldT === 0);
+  p.invT = 0; p.gun = 3;
+  g.hurtPlayer(p, 999);
+  ok('체력이 0 이면 격추', p.down === true);
+  eq('격추되면 무기가 한 단계 내려감', p.gun, 2);
+  ok('100단계는 1단계보다 더 아픔', (() => {
+    const a = toPlay(newGame(1, 1)), b = toPlay(newGame(100, 1));
+    return b.dmgMul > a.dmgMul * 2;
+  })());
+
+  // 적기와 몸이 겹쳐 있어도 초당 두 번까지만 아픕니다 (예전엔 매 틱 깎여 3초 만에 격추됐습니다)
+  const gc = toPlay(newGame(1, 1));
+  const pc = gc.players.get(1);
+  pc.x = 700; pc.y = 450; pc.tx = 700; pc.ty = 450; pc.invT = 0;
+  gc.enemies.length = 0;
+  gc.spawnEnemy({ type: 'scout', hp: 9999, spd: 0, fire: 99, gap: 1, count: 1, form: 'line' },
+    { x: 700, y: 450, delay: 0, pat: 'stop', amp: 0, per: 1, hold: 0.44 });
+  const hp0 = pc.hp;
+  for (let i = 0; i < 20; i++) {               // 1초치
+    gc.spawnQ.length = 0;
+    gc.setInput(1, { tx: 700, ty: 450 });
+    gc.enemies[0].x = 700; gc.enemies[0].y = 450;
+    gc.step();
+  }
+  const hits = (hp0 - pc.hp) / (S.CONTACT_DMG * gc.dmgMul);
+  ok('겹쳐 있어도 1초에 두 번쯤만 아픔 (' + hits.toFixed(1) + '회)', hits <= 2.2 && hits >= 1);
+
+  // 혼자 하다 격추되면 곧바로 전멸 처리 (혼자 14초를 기다리게 두지 않습니다)
+  const gs = toPlay(newGame(1, 1));
+  const solo = gs.players.get(1);
+  solo.invT = 0; gs.hurtPlayer(solo, 999);
+  gs.step();
+  eq('혼자 하다 격추되면 바로 전멸', gs.phase, 'wipe');
+
+  // 둘 이상일 때, 아무도 구하러 오지 않으면 목숨 하나를 쓰고 스스로 일어남
+  const g2 = toPlay(newGame(1, 2));
+  const q = g2.players.get(1), far = g2.players.get(2);
+  q.invT = 0; g2.hurtPlayer(q, 999);
+  const lives0 = q.lives;
+  for (let i = 0; i < Math.ceil(S.DOWN_SEC / S.DT) + 4; i++) {
+    far.invT = 999; far.x = 1500; far.y = 100; far.tx = 1500; far.ty = 100;   // 멀리 떨어져 있기
+    g2.step();
+  }
+  ok('아무도 안 오면 목숨을 써서 부활', q.down === false && q.lives === lives0 - 1,
+    'down=' + q.down + ' lives=' + q.lives + '/' + lives0);
+
+  // 둘이면 옆에 있어 주는 것만으로 살아납니다
+  const g3 = toPlay(newGame(1, 2));
+  const a = g3.players.get(1), b = g3.players.get(2);
+  a.invT = 0; g3.hurtPlayer(a, 999);
+  ok('격추 상태', a.down === true);
+  const lives1 = a.lives;
+  for (let i = 0; i < Math.ceil(S.REVIVE_SEC / S.DT) + 3; i++) {
+    b.x = a.x; b.y = a.y; b.tx = a.x; b.ty = a.y;   // 옆에 붙어 있기
+    g3.step();
+  }
+  ok('친구가 붙어 있으면 살아남', a.down === false);
+  eq('친구가 살리면 목숨은 안 줄어듦', a.lives, lives1);
+
+  // 멀리 있으면 안 살아납니다
+  const g4 = toPlay(newGame(1, 2));
+  const c = g4.players.get(1), d = g4.players.get(2);
+  c.invT = 0; g4.hurtPlayer(c, 999);
+  for (let i = 0; i < Math.ceil(S.REVIVE_SEC / S.DT) + 3; i++) {
+    d.x = 1500; d.y = 800; d.tx = 1500; d.ty = 800;
+    g4.step();
+  }
+  ok('멀리 있으면 못 살림', c.down === true);
+
+  // 전멸 → 같은 단계 다시
+  const g5 = toPlay(newGame(3, 2));
+  for (const p2 of g5.players.values()) { p2.invT = 0; g5.hurtPlayer(p2, 999); }
+  g5.step();
+  eq('다 쓰러지면 전멸 상태', g5.phase, 'wipe');
+  let guard2 = 0;
+  while (g5.phase === 'wipe' && guard2++ < 400) g5.step();
+  eq('같은 단계를 처음부터 다시', g5.stage, 3);
+  ok('전멸 후 모두 일어남', [...g5.players.values()].every((x) => !x.down));
+}
+
+/* ═════════ 7. 아이템 ═════════ */
+grp('7. 아이템');
+{
+  const g = toPlay(newGame(1, 1));
+  const p = g.players.get(1);
+  p.gun = 1; g.grab(p, 'pow');
+  eq('P 를 먹으면 무기 강화', p.gun, 2);
+  p.gun = S.GUN_MAX; const sc = p.score; g.grab(p, 'pow');
+  ok('무기가 최대면 점수로', p.gun === S.GUN_MAX && p.score > sc);
+  p.hp = 10; g.grab(p, 'heal');
+  eq('♥ 는 40 회복', p.hp, 50);
+  p.hp = S.P_MAXHP - 5; g.grab(p, 'heal');
+  eq('최대 체력을 넘지 않음', p.hp, S.P_MAXHP);
+  p.bombs = 0; g.grab(p, 'bomb');
+  eq('폭탄 하나 늘어남', p.bombs, 1);
+  p.bombs = S.BOMB_MAX; g.grab(p, 'bomb');
+  eq('폭탄은 최대치까지만', p.bombs, S.BOMB_MAX);
+  g.grab(p, 'shield');
+  ok('보호막이 켜짐', p.shieldT > 0);
+
+  // 아이템이 아군 쪽으로 끌려옵니다
+  const g2 = toPlay(newGame(1, 1));
+  const q = g2.players.get(1);
+  q.x = 400; q.y = 400; q.tx = 400; q.ty = 400;
+  g2.pickups.push({ id: 1, type: 'star', x: 560, y: 400, vx: 0, vy: 0, t: 0 });
+  const d0 = Math.hypot(560 - q.x, 0);
+  g2.stepPickups(S.DT);
+  const k = g2.pickups[0];
+  ok('가까이 있으면 끌려옴', !k || Math.hypot(k.x - q.x, k.y - q.y) < d0);
+}
+
+/* ═════════ 8. 폭탄 ═════════ */
+grp('8. 폭탄');
+{
+  const g = toPlay(newGame(1, 1));
+  const p = g.players.get(1);
+  p.x = 400; p.y = 450; p.bombs = 2;
+  g.addBullet({ x: 420, y: 450, vx: -100, vy: 0, own: -1, kind: 'e1' });
+  g.addBullet({ x: 1580, y: 60, vx: -100, vy: 0, own: -1, kind: 'e1' });
+  g.enemies.length = 0;
+  g.spawnEnemy({ type: 'scout', hp: 30, spd: 100, fire: 99, gap: 1, count: 1, form: 'line' }, { x: 460, y: 450, delay: 0, pat: 'straight', amp: 0, per: 1, hold: 0 });
+  g.useBomb(p);
+  eq('폭탄 개수가 줄어듦', p.bombs, 1);
+  ok('가까운 적탄이 지워짐', !g.bullets.some((b) => b.own === -1 && b.x === 420));
+  ok('멀리 있는 적탄은 남음', g.bullets.some((b) => b.own === -1 && b.x === 1580));
+  eq('가까운 적이 쓸림', g.enemies.length, 0);
+  p.bombs = 0;
+  const before = g.bullets.length;
+  g.useBomb(p);
+  eq('폭탄이 없으면 안 터짐', p.bombs, 0);
+  const q = toPlay(newGame(1, 1)).players.get(1);
+}
+
+/* ═════════ 9. 적 행동 ═════════ */
+grp('9. 적 행동');
+{
+  // 방패기는 정면을 막습니다
+  const g = toPlay(newGame(1, 1));
+  g.enemies.length = 0;
+  const e = g.spawnEnemy({ type: 'shieldy', hp: 100, spd: 100, fire: 99, gap: 1, count: 1, form: 'line' },
+    { x: 800, y: 450, delay: 0, pat: 'straight', amp: 0, per: 1, hold: 0 });
+  const hp0 = e.hp;
+  g.bullets.length = 0;
+  g.addBullet({ x: 800 - 20, y: 450, vx: 1000, vy: 0, r: 6, dmg: 20, own: 1, kind: 'p1' });
+  g.collide();
+  eq('방패기는 정면 총알을 막음', e.hp, hp0);
+  g.bullets.length = 0;
+  g.addBullet({ x: 800, y: 450 - 24, vx: 1000, vy: 0, r: 6, dmg: 20, own: 1, kind: 'p1' });
+  g.collide();
+  ok('위아래로는 맞음', e.hp < hp0);
+
+  // 분열기
+  const g2 = toPlay(newGame(1, 1));
+  g2.enemies.length = 0;
+  const sp = g2.spawnEnemy({ type: 'splitter', hp: 10, spd: 100, fire: 99, gap: 1, count: 1, form: 'line' },
+    { x: 800, y: 450, delay: 0, pat: 'straight', amp: 0, per: 1, hold: 0 });
+  g2.damageEnemy(0, 9999, null);
+  eq('분열기는 죽으면 둘로 갈라짐', g2.enemies.length, 2);
+  ok('갈라진 조각은 더 약함', g2.enemies.every((x) => x.maxHp < sp.maxHp));
+
+  // 수리기
+  const g3 = toPlay(newGame(1, 1));
+  g3.enemies.length = 0;
+  const h = g3.spawnEnemy({ type: 'healer', hp: 100, spd: 100, fire: 99, gap: 1, count: 1, form: 'line' },
+    { x: 800, y: 450, delay: 0, pat: 'straight', amp: 0, per: 1, hold: 0 });
+  const w = g3.spawnEnemy({ type: 'scout', hp: 100, spd: 100, fire: 99, gap: 1, count: 1, form: 'line' },
+    { x: 820, y: 450, delay: 0, pat: 'straight', amp: 0, per: 1, hold: 0 });
+  w.hp = 10; h.healCd = 0;
+  g3.stepEnemies(S.DT);
+  ok('수리기가 옆의 적을 회복시킴', w.hp > 10);
+
+  // 자폭기는 아군을 따라옵니다
+  const g4 = toPlay(newGame(1, 1));
+  const pl = g4.players.get(1);
+  pl.x = 200; pl.y = 800; pl.tx = 200; pl.ty = 800;
+  g4.enemies.length = 0;
+  const km = g4.spawnEnemy({ type: 'kamikaze', hp: 100, spd: 300, fire: 99, gap: 1, count: 1, form: 'line' },
+    { x: 1200, y: 200, delay: 0, pat: 'home', amp: 0, per: 1, hold: 0 });
+  const dy0 = Math.abs(km.y - pl.y);
+  run(g4, 20, god);
+  ok('자폭기가 아군 쪽으로 붙음', Math.abs(km.y - pl.y) < dy0);
+
+  // 유도탄
+  const g5 = toPlay(newGame(1, 1));
+  const pl5 = g5.players.get(1);
+  pl5.x = 200; pl5.y = 200; pl5.tx = 200; pl5.ty = 200; pl5.invT = 999;
+  g5.bullets.length = 0;
+  const mb = g5.addBullet({ x: 1200, y: 800, vx: -200, vy: 0, own: -1, kind: 'em', hom: 1.5 });
+  g5.stepBullets(S.DT * 10);
+  ok('유도탄이 아군 쪽으로 휨', mb.vy < 0);
+}
+
+/* ═════════ 10. 보스 ═════════ */
+grp('10. 보스');
+{
+  const g = toPlay(newGame(10, 2));
+  let guard = 0;
+  while (!g.boss && guard++ < 8000) { god(g); g.enemies.length = 0; g.spawnQ.length = 0; g.step(); }
+  ok('보스 단계에서 보스가 나옴', !!g.boss);
+  eq('보스 이름이 그 지역 보스', g.boss.name, S.BOSSES[0].name);
+  eq('보스가 나오면 phase 가 boss', g.phase, 'boss');
+  run(g, 120, god);
+  ok('보스가 화면 안으로 들어옴', g.boss.x < S.FIELD.w && g.boss.entering === false);
+  ok('보스가 공격함', g.bullets.some((b) => b.own === -1) || g.beams.length > 0);
+
+  // 페이즈 전환
+  g.boss.hp = g.boss.maxHp * 0.4;
+  run(g, 3, god);
+  ok('체력이 줄면 다음 형태로 바뀜', g.boss.phaseIdx >= 1);
+
+  // 처치 보상
+  const before = { gun: 0, bombs: 0 };
+  for (const p of g.players.values()) { p.gun = 1; p.bombs = 0; p.hp = 10; }
+  g.damageBoss(999999, g.players.get(1));
+  ok('보스를 잡으면 사라짐', g.boss === null);
+  ok('보스를 잡으면 모두 회복·무기·폭탄 보상',
+    [...g.players.values()].every((p) => p.hp === S.P_MAXHP && p.gun === 2 && p.bombs === 1));
+  guard = 0;
+  while (g.phase === 'boss' && guard++ < 60) g.step();
+  eq('보스를 잡으면 단계 클리어', g.phase, 'clear');
+  ok('남아 있던 적탄이 정리됨', !g.bullets.some((b) => b.own === -1));
+}
+{
+  // 예전 버그: 아군 총알이 보스를 끝내는 순간 적탄이 한꺼번에 지워지면서
+  //           충돌 검사가 없는 총알을 붙잡아 게임이 통째로 멈췄습니다.
+  const g = toPlay(newGame(10, 2));
+  let guard = 0;
+  while (!g.boss && guard++ < 9000) { god(g); g.enemies.length = 0; g.spawnQ.length = 0; g.step(); }
+  run(g, 120, god);
+  for (let i = 0; i < 40; i++) g.addBullet({ x: 900 + i, y: 300 + i, vx: -200, vy: 0, own: -1, kind: 'e1' });
+  g.boss.hp = 1; g.boss.entering = false;
+  const bx = g.boss.x, by = g.boss.y;
+  for (let i = 0; i < 6; i++) g.addBullet({ x: bx, y: by, vx: 900, vy: 0, r: 9, dmg: 50, own: 1, kind: 'p1' });
+  let crashed = '';
+  try { g.collide(); g.step(); g.snapshot(); } catch (e) { crashed = e.message; }
+  ok('총알로 보스를 끝내도 오류가 나지 않음', !crashed, crashed);
+  ok('그 순간 보스가 사라짐', g.boss === null);
+}
+{
+  // 10기 모두 실제로 소환·공격이 되는지
+  let allOk = true, why = '';
+  for (let z = 0; z < 10; z++) {
+    const st = (z + 1) * 10;
+    const g = toPlay(newGame(st, 1));
+    let guard = 0;
+    while (!g.boss && guard++ < 9000) { god(g); g.enemies.length = 0; g.spawnQ.length = 0; g.step(); }
+    if (!g.boss) { allOk = false; why = st + '단계 보스 미출현'; break; }
+    if (g.boss.key !== S.BOSSES[z].key) { allOk = false; why = st + '단계 보스가 다름'; break; }
+    // 모든 페이즈를 지나가게 하며 공격을 돌려 봅니다
+    try {
+      for (let ph = 0; ph < S.BOSSES[z].phases.length; ph++) {
+        g.boss.hp = g.boss.maxHp * (S.BOSSES[z].phases[ph].at - 0.01);
+        run(g, 140, god);
+      }
+    } catch (e) { allOk = false; why = st + '단계에서 오류: ' + e.message; break; }
+  }
+  ok('보스 10기가 모두 나오고 모든 형태로 싸움', allOk, why);
+}
+
+/* ═════════ 11. 스냅샷(화면에 보낼 자료) ═════════ */
+grp('11. 스냅샷');
+{
+  const g = toPlay(newGame(1, 2));
+  run(g, 40, god);
+  const s = g.snapshot();
+  ok('필요한 칸이 다 있음', ['t', 'ph', 'st', 'zone', 'sc', 'P', 'E', 'K', 'BM', 'HB', 'Bn', 'Bd', 'X', 'B'].every((k) => k in s));
+  eq('사람 수가 맞음', s.P.length, 2);
+  ok('좌표가 정수', s.P.every((r) => Number.isInteger(r[1]) && Number.isInteger(r[2])));
+  ok('적도 정수 좌표', s.E.every((r) => Number.isInteger(r[2]) && Number.isInteger(r[3])));
+  const s2 = g.snapshot();
+  eq('새 총알 목록은 한 번 보내면 비워짐', s2.Bn.length, 0);
+  eq('이펙트도 한 번만 나감', s2.X.length, 0);
+  run(g, 4, god);
+  const s3 = g.snapshot();
+  ok('그 사이에 생긴 총알은 다음 스냅샷에', s3.Bn.length > 0);
+  ok('총알 정보에 태어난 틱이 있음(각 화면이 스스로 굴리려고)',
+    s3.Bn.every((b) => Number.isInteger(b[6])));
+  ok('유도탄은 매 틱 위치를 보냄', (() => {
+    const g2 = toPlay(newGame(1, 1));
+    g2.addBullet({ x: 900, y: 400, vx: -200, vy: 0, own: -1, kind: 'em', hom: 1.4 });
+    const sn = g2.snapshot();
+    return sn.HB.length === 1 && sn.Bn.every((b) => b[5] !== 'em');
+  })());
+}
+
+/* ═════════ 12. 결정성·재현성 ═════════ */
+grp('12. 재현성');
+{
+  const mk = () => { const g = new S.Game({ stage: 12, seed: 777 }); g.addPlayer(1, 'A', 0); return g; };
+  const a = mk(), b = mk();
+  for (let i = 0; i < 300; i++) {
+    a.setInput(1, { tx: 300 + (i % 50) * 4, ty: 400 });
+    b.setInput(1, { tx: 300 + (i % 50) * 4, ty: 400 });
+    a.step(); b.step();
+  }
+  eq('같은 시드·같은 입력이면 점수가 같음', a.score, b.score);
+  eq('적 수도 같음', a.enemies.length, b.enemies.length);
+  eq('단계도 같음', a.stage, b.stage);
+}
+
+/* ═════════ 13. 100단계 전부 굴려 보기 ═════════ */
+grp('13. 100단계 스모크 — 오류 없이 도는지');
+{
+  let bad = '', frames = 0, maxEnemies = 0, maxBullets = 0;
+  const t0 = performance.now();
+  for (let st = 1; st <= 100; st++) {
+    const g = new S.Game({ stage: st, seed: 100 + st });
+    for (let i = 0; i < 3; i++) g.addPlayer(i + 1, 'P' + i, i);
+    try {
+      for (let i = 0; i < 300; i++) {          // 15초치
+        // 아이들이 대충 움직이는 흉내
+        for (const p of g.players.values()) {
+          p.invT = 999;
+          g.setInput(p.id, { tx: 200 + Math.sin(i * 0.05 + p.id) * 150, ty: 450 + Math.cos(i * 0.04 + p.id * 2) * 300 });
+        }
+        g.step();
+        g.snapshot();
+        frames++;
+        maxEnemies = Math.max(maxEnemies, g.enemies.length);
+        maxBullets = Math.max(maxBullets, g.bullets.length);
+      }
+    } catch (e) { bad = st + '단계에서 오류: ' + e.message; break; }
+  }
+  const ms = Math.round(performance.now() - t0);
+  ok('1~100단계를 3명이 15초씩 돌려도 오류 없음 (' + frames + '틱, ' + ms + 'ms)', !bad, bad);
+  ok('한 화면에 적이 60기를 넘지 않음 (최대 ' + maxEnemies + ')', maxEnemies <= 60);
+  ok('총알이 400발을 넘지 않음 (최대 ' + maxBullets + ')', maxBullets <= 400);
+}
+
+/* ═════════ 14. 실제로 깰 수 있는가 (자동 조종 봇) ═════════ */
+grp('14. 자동 조종 봇으로 실제 클리어');
+{
+  // 총알을 피하면서 적을 쏘는 간단한 봇. 사람보다 훨씬 서투릅니다.
+  function botStep(g) {
+    for (const p of g.players.values()) {
+      if (p.down) continue;
+      let ax = 0, ay = 0;
+      for (const b of g.bullets) {
+        if (b.own !== -1) continue;
+        const dx = p.x - b.x, dy = p.y - b.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 220 && d > 1) { ax += dx / d * (220 - d); ay += dy / d * (220 - d); }
+      }
+      for (const e of g.enemies) {
+        const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy);
+        if (d < 180 && d > 1) { ax += dx / d * (180 - d) * 0.8; ay += dy / d * (180 - d) * 0.8; }
+      }
+      // 가장 가까운 적과 높이를 맞춥니다
+      let tgt = null, bd = Infinity;
+      for (const e of g.enemies) { const d = e.x - p.x; if (d > 0 && d < bd) { bd = d; tgt = e; } }
+      if (g.boss) tgt = g.boss;
+      const wantY = tgt ? tgt.y : 450;
+      g.setInput(p.id, {
+        tx: S.clamp(240 + ax * 0.5, 40, 700),
+        ty: S.clamp((ay ? p.y + ay : wantY), 40, S.FIELD.h - 40),
+      });
+    }
+  }
+  const g = new S.Game({ stage: 1, seed: 2026 });
+  for (let i = 0; i < 3; i++) g.addPlayer(i + 1, '봇' + (i + 1), i);
+  let ticks = 0, wipes = 0;
+  const seen = new Set();
+  while (g.stage < 4 && ticks++ < 12000) {
+    botStep(g);
+    g.step();
+    g.snapshot();               // 서버와 똑같이 매 틱 상태를 가져갑니다
+    if (g.phase === 'wipe') wipes++;
+    seen.add(g.stage);
+  }
+  ok('봇 3명이 1→3단계를 스스로 넘어감 (' + ticks + '틱, 전멸 ' + wipes + '회)', g.stage >= 4, '멈춘 단계: ' + g.stage);
+  ok('중간에 단계를 건너뛰지 않음', seen.has(1) && seen.has(2) && seen.has(3));
+
+  // 보스도 봇이 잡을 수 있는지 (10단계 · 20단계)
+  for (const st of [10, 20]) {
+    const gb = new S.Game({ stage: st, seed: 55 + st });
+    for (let i = 0; i < 3; i++) gb.addPlayer(i + 1, '봇' + i, i);
+    for (const p of gb.players.values()) p.gun = 4;
+    let t2 = 0, bossSeen = 0, fightTicks = 0;
+    const t0 = performance.now();
+    while (gb.stage === st && t2++ < 20000) {
+      botStep(gb); gb.step(); gb.snapshot();
+      if (gb.boss) { bossSeen = 1; fightTicks++; }
+    }
+    ok('봇 3명이 ' + st + '단계 보스를 만나 잡음 (' + t2 + '틱, ' + Math.round(performance.now() - t0) + 'ms)',
+      bossSeen && gb.stage > st, '보스만남=' + bossSeen + ' 단계=' + gb.stage);
+    // 너무 빨리 끝나면 보스 싸움이 아니라 그냥 지나가는 장식이 됩니다
+    ok('보스 싸움이 최소 20초는 이어짐 (' + Math.round(fightTicks * S.DT) + '초)', fightTicks * S.DT >= 20,
+      fightTicks + '틱');
+  }
+}
+
+/* ═════════ 15. 요금·부하 관련 안전장치 ═════════ */
+grp('15. 안전장치');
+{
+  // 서버와 똑같이 매 틱 스냅샷을 가져가며 가장 큰 것을 재 봅니다
+  const g = toPlay(newGame(50, 5));
+  let maxSnap = 0, sumSnap = 0, n = 0;
+  for (let i = 0; i < 600; i++) {
+    for (const p of g.players.values()) {
+      p.invT = 999;
+      g.setInput(p.id, { tx: 200 + Math.sin(i * .05 + p.id) * 160, ty: 450 + Math.cos(i * .04 + p.id) * 320 });
+    }
+    g.step();
+    const len = JSON.stringify(g.snapshot()).length;
+    maxSnap = Math.max(maxSnap, len); sumSnap += len; n++;
+  }
+  const avg = Math.round(sumSnap / n);
+  ok('5명이 붙어도 한 틱 자료가 6KB 미만 (최대 ' + maxSnap + 'B, 평균 ' + avg + 'B)', maxSnap < 6144);
+  ok('한 사람당 초당 40KB 이하 (약 ' + Math.round(avg * 20 / 1024) + 'KB/s)', avg * 20 <= 40 * 1024);
+  ok('적 체력은 사람 수에 비례해 최대 3배쯤까지만 오름', (() => {
+    const a = newGame(50, 1), b = newGame(50, 6);
+    toPlay(a); toPlay(b); run(a, 60); run(b, 60);
+    if (!a.enemies.length || !b.enemies.length) return true;
+    const k = b.enemies[0].maxHp / a.enemies[0].maxHp;
+    return k > 1 && k <= 3.1;
+  })());
+  ok('쏘는 적은 한 웨이브에 15기를 넘지 않음 (탄막이 감당 못 하게 됩니다)', (() => {
+    for (const st of [30, 55, 78, 95]) {
+      const g = toPlay(newGame(st, 6));
+      for (let k = 0; k < 6; k++) {
+        const n = g.spawnQ.length + g.enemies.length;
+        const t = g.plan.waves[Math.max(0, g.waveIdx - 1)].type;
+        if (S.ENEMY[t].fire && n > 15) return false;
+        g.enemies.length = 0; g.spawnQ.length = 0;
+        for (let i = 0; i < 30; i++) { god(g); g.step(); }
+      }
+    }
+    return true;
+  })());
+  ok('멈춰 쏘는 적들이 한 줄로 벽을 만들지 않음', (() => {
+    const w = { type: 'sniper', form: 'line', count: 12, hp: 20, spd: 200, fire: 2, gap: .3 };
+    const xs = new Set(S.buildSpawns(w, S.mulberry32(3)).map((s) => Math.round(s.hold * 1000)));
+    return xs.size >= 3;
+  })());
+  ok('사람이 많으면 적도 더 많이 나옴', (() => {
+    // 쏘는 적은 일부러 수를 막아 뒀으므로, 안 쏘는 적이 첫 웨이브인 단계로 견줍니다
+    let st = 0;
+    for (let i = 1; i <= 100; i++) {
+      const p = S.stagePlan(i);
+      if (!p.isBoss && !S.ENEMY[p.waves[0].type].fire) { st = i; break; }
+    }
+    if (!st) return false;
+    const a = toPlay(newGame(st, 1)), b = toPlay(newGame(st, 5));
+    const na = a.spawnQ.length + a.enemies.length, nb = b.spawnQ.length + b.enemies.length;
+    return nb > na * 1.8;
+  })());
+  ok('100단계를 깨면 allclear 로 끝남', (() => {
+    const g2 = newGame(100, 1);
+    toPlay(g2);
+    g2.finishStage();
+    let n = 0; while (g2.phase === 'clear' && n++ < 400) g2.step();
+    return g2.phase === 'allclear';
+  })());
+}
+
+} catch (err) {
+  ok('테스트가 끝까지 돌아감', false, (err && err.message) + '  ·  ' + String(err && err.stack).split('\n').slice(0, 3).join(' ← '));
+}
+
+/* ── 결과 ── */
+const sum = document.getElementById('sum');
+sum.innerHTML = fail === 0
+  ? '<span class="ok">✔ 전부 통과 — ' + pass + '건</span>'
+  : '<span class="bad">✘ ' + fail + '건 실패</span> <span class="ok">/ ' + pass + '건 통과</span>';
+window.__RESULT__ = { pass, fail };
+})();
+</script>
+</body>
+</html>
