@@ -14,7 +14,7 @@ var SkySim = (function () {
   'use strict';
 
   // 서버·클라이언트가 다르면 접속 시 경고를 띄우려고 둡니다.
-  const VERSION = 1;
+  const VERSION = 2;               // 2: 보조기·차지샷·메달 연쇄 (1945 스타일)
 
   const FIELD = { w: 1600, h: 900 };
   const TICK_MS = 50;               // 20Hz
@@ -184,6 +184,21 @@ var SkySim = (function () {
   const GUN_MAX = 5;
   const BULLET_SPD = 1500;          // 빠를수록 화면에 깔리는 총알이 줄어듭니다
 
+  // ── 보조기(윙맨) — 무기 Lv2부터 한 대씩, 최대 4대가 뒤에서 따라 쏩니다 ──
+  const WING = [[-30, -52], [-30, 52], [-60, -96], [-60, 96]];
+  const WING_CD = 0.26;
+  const WING_DMG = 8;
+  const wingCount = (gun) => clamp(gun - 1, 0, 4);
+
+  // ── 차지샷 — 게이지가 저절로 차고, 버튼을 누르면 한 번에 뚫고 나가는 큰 포탄 ──
+  const CHARGE_SEC = 2.2;           // 한 칸 차는 시간
+  const CHARGE_MAX = 3;
+  const CHARGE_DMG = [0, 90, 190, 330];
+
+  // ── 메달 — 6초 안에 이어서 먹으면 값이 올라갑니다 ──
+  const MEDAL = [100, 200, 300, 500, 800, 1000, 1500, 2000];
+  const CHAIN_SEC = 6;
+
   const PICKUPS = ['pow', 'heal', 'bomb', 'shield', 'star'];
 
   /* ═══════════════════ 단계 설계 ═══════════════════ */
@@ -302,6 +317,7 @@ var SkySim = (function () {
         hp: P_MAXHP, lives: P_LIVES, gun: 1, bombs: BOMB_START,
         down: false, downT: 0, revT: 0, invT: SPAWN_INV, shieldT: 0,
         fireCd: 0, score: 0, kills: 0, deaths: 0, ang: 0, alive: true, joinT: 0,
+        wingCd: WING_CD, charge: 0, chain: 0, chainT: 0,
       };
       p.y = clamp(p.y, 120, FIELD.h - 120); p.ty = p.y;
       this.players.set(id, p);
@@ -318,6 +334,15 @@ var SkySim = (function () {
       if (typeof inp.tx === 'number' && isFinite(inp.tx)) p.tx = clamp(inp.tx, 0, FIELD.w);
       if (typeof inp.ty === 'number' && isFinite(inp.ty)) p.ty = clamp(inp.ty, 0, FIELD.h);
       if (inp.bomb) this.useBomb(p);
+      if (inp.charge) this.fireCharge(p);
+    }
+    fireCharge(p) {
+      if (p.down || p.charge < 1 || (this.phase !== 'play' && this.phase !== 'boss')) return;
+      const lv = Math.floor(clamp(p.charge, 0, CHARGE_MAX));
+      p.charge = 0;
+      const dmg = Math.round(CHARGE_DMG[lv] * (1 + (this.stage - 1) * 0.06));
+      this.addBullet({ x: p.x + 40, y: p.y, vx: 1050, vy: 0, r: 20 + lv * 9, dmg, own: p.id, kind: 'pc', col: p.color, life: 3 });
+      this.fx.push({ t: 'charge', id: p.id, x: p.x, y: p.y, lv });
     }
     alivePlayers() { const a = []; for (const p of this.players.values()) if (!p.down) a.push(p); return a; }
 
@@ -490,6 +515,7 @@ var SkySim = (function () {
       for (const p of this.players.values()) {
         p.joinT += dt;
         if (p.invT > 0) p.invT -= dt;
+        if (p.chainT > 0) { p.chainT -= dt; if (p.chainT <= 0) p.chain = 0; }
         if (p.shieldT > 0) p.shieldT -= dt;
 
         if (p.down) {
@@ -545,6 +571,19 @@ var SkySim = (function () {
               });
             }
           }
+          // 보조기 사격
+          const nw = wingCount(p.gun);
+          if (nw > 0) {
+            p.wingCd -= dt;
+            if (p.wingCd <= 0) {
+              p.wingCd = WING_CD;
+              for (let w = 0; w < nw; w++) {
+                const x = clamp(p.x + WING[w][0], 10, FIELD.w - 10), y = clamp(p.y + WING[w][1], 10, FIELD.h - 10);
+                this.addBullet({ x: x + 16, y, vx: BULLET_SPD, vy: 0, r: 6, dmg: WING_DMG, own: p.id, kind: 'pw', col: p.color });
+              }
+            }
+          }
+          if (p.charge < CHARGE_MAX) p.charge = Math.min(CHARGE_MAX, p.charge + dt / CHARGE_SEC);
         }
       }
     }
@@ -811,15 +850,29 @@ var SkySim = (function () {
       else if (r < 0.10) type = 'heal';
       else if (r < 0.125) type = 'bomb';
       else if (r < 0.15) type = 'shield';
-      else if (r < 0.22) type = 'star';
+      else if (r < 0.30) type = 'star';
       if (!type) return;
-      this.pickups.push({ id: this.nid++, type, x, y, vx: -85, vy: 0, t: 0 });
+      this.addPickup(type, x, y);
+    }
+    addPickup(type, x, y, vx) {
+      const k = { id: this.nid++, type, x, y, vx: vx === undefined ? -85 : vx, vy: 0, t: 0 };
+      // P 아이템은 화면 위아래를 튕겨 다닙니다 (1945 처럼 쫓아가서 먹는 재미)
+      if (type === 'pow') { k.vx = -55; k.vy = (this.rng() < 0.5 ? -1 : 1) * 150; k.bounce = 1; }
+      this.pickups.push(k);
+      return k;
     }
     stepPickups(dt) {
       for (let i = this.pickups.length - 1; i >= 0; i--) {
         const k = this.pickups[i];
         k.t += dt;
-        k.x += k.vx * dt; k.y += Math.sin(k.t * 2.2) * 34 * dt;
+        k.x += k.vx * dt;
+        if (k.bounce) {
+          k.y += k.vy * dt;
+          if (k.y < 70) { k.y = 70; k.vy = Math.abs(k.vy); }
+          if (k.y > FIELD.h - 70) { k.y = FIELD.h - 70; k.vy = -Math.abs(k.vy); }
+          if (k.x < 80 && k.t < 12) k.vx = Math.abs(k.vx);     // 왼쪽 끝에서도 한 번 되돌아옵니다
+          if (k.x > FIELD.w - 80) k.vx = -Math.abs(k.vx);
+        } else k.y += Math.sin(k.t * 2.2) * 34 * dt;
         // 가까운 아군에게 살짝 끌려갑니다 (아이들이 놓치지 않게)
         const p = this.nearestPlayer(k.x, k.y);
         if (p && d2(k.x, k.y, p.x, p.y) < 210 * 210) {
@@ -842,7 +895,14 @@ var SkySim = (function () {
         case 'heal': p.hp = Math.min(P_MAXHP, p.hp + 40); break;
         case 'bomb': p.bombs = Math.min(BOMB_MAX, p.bombs + 1); break;
         case 'shield': p.shieldT = 9; break;
-        case 'star': p.score += 300; this.score += 300; break;
+        case 'star': {
+          p.chain = p.chainT > 0 ? p.chain + 1 : 1;
+          p.chainT = CHAIN_SEC;
+          const v = MEDAL[Math.min(p.chain, MEDAL.length) - 1];
+          p.score += v; this.score += v;
+          this.fx.push({ t: 'grab', x: p.x, y: p.y, k: type, id: p.id, v, n: p.chain });
+          return;
+        }
       }
       this.fx.push({ t: 'grab', x: p.x, y: p.y, k: type, id: p.id });
     }
@@ -1008,6 +1068,10 @@ var SkySim = (function () {
       this.score += gain;
       if (byPlayer) { byPlayer.score += gain; byPlayer.kills++; }
       this.fx.push({ t: 'bossdown', x: B.x, y: B.y, r: B.r });
+      for (let i = 0; i < 10; i++) {
+        const k = this.addPickup('star', B.x + (this.rng() - 0.5) * B.r, B.y + (this.rng() - 0.5) * B.r * 1.4, -60 - this.rng() * 160);
+        k.t = -2;   // 보통 메달보다 2초 더 남아 있습니다
+      }
       // 보상: 모두 회복 + 폭탄
       for (const p of this.players.values()) {
         p.hp = P_MAXHP; p.bombs = Math.min(BOMB_MAX, p.bombs + 1);
@@ -1043,6 +1107,27 @@ var SkySim = (function () {
           continue;
         }
         const p = this.players.get(b.own);
+        if (b.kind === 'pc') {
+          if (!b.hits) b.hits = new Set();
+          for (let j = this.enemies.length - 1; j >= 0; j--) {
+            const e = this.enemies[j];
+            if (b.hits.has(e.id)) continue;
+            const rr = e.r + b.r;
+            if (d2(b.x, b.y, e.x, e.y) > rr * rr) continue;
+            b.hits.add(e.id);
+            this.fx.push({ t: 'hit', x: e.x, y: e.y });
+            this.damageEnemy(j, b.dmg, p);             // 방패도 뚫습니다
+          }
+          if (this.boss && !b.hits.has('boss')) {
+            const B = this.boss, rr = B.r * 0.8 + b.r;
+            if (!B.entering && d2(b.x, b.y, B.x, B.y) < rr * rr) {
+              b.hits.add('boss');
+              this.fx.push({ t: 'hit', x: b.x, y: b.y });
+              this.damageBoss(b.dmg * 2, p);             // 보스에게는 두 배
+            }
+          }
+          continue;
+        }
         let hit = false;
         for (let j = this.enemies.length - 1; j >= 0; j--) {
           const e = this.enemies[j];
@@ -1105,7 +1190,8 @@ var SkySim = (function () {
       for (const p of this.players.values()) {
         P.push([p.id, R1(p.x), R1(p.y), R1(p.hp), p.gun, p.invT > 0 ? 1 : 0, p.down ? 1 : 0,
                 R1(p.revT / REVIVE_SEC * 100), p.bombs, p.score, p.lives, R1(p.ang * 100),
-                p.shieldT > 0 ? 1 : 0, R1(p.downT)]);
+                p.shieldT > 0 ? 1 : 0, R1(p.downT),
+                R1(p.charge * 10), p.chain, R1(p.chainT * 10)]);
       }
       const E = [];
       for (const e of this.enemies) E.push([e.id, e.art, R1(e.x), R1(e.y), R1(e.hp), R1(e.maxHp), R1(e.ang * 100), e.flash > 0 ? 1 : 0]);
@@ -1139,6 +1225,7 @@ var SkySim = (function () {
     ZONES, ENEMY, BOSSES, GUNS, GUN_MAX, PICKUPS, ROSTER,
     P_MAXHP, P_LIVES, P_R, BOMB_MAX, REVIVE_SEC, DOWN_SEC, HIT_INV, CONTACT_DMG,
     Game, stagePlan, buildSpawns, mulberry32, clamp,
+    WING, wingCount, CHARGE_MAX, CHARGE_SEC, MEDAL, CHAIN_SEC,
   };
 })();
 

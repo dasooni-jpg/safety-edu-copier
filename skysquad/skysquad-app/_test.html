@@ -726,6 +726,64 @@ grp('15. 안전장치');
   })());
 }
 
+/* ═════════ 16. 1945 스타일 — 보조기·차지샷·메달 ═════════ */
+grp('16. 보조기·차지샷·메달');
+{
+  eq('Lv1 은 보조기 없음', S.wingCount(1), 0);
+  eq('Lv3 은 보조기 2대', S.wingCount(3), 2);
+  eq('Lv5 는 보조기 4대(최대)', S.wingCount(9), 4);
+  const g = toPlay(newGame(1, 1));
+  const p = g.players.get(1);
+  p.gun = 3; p.x = 400; p.y = 450; p.tx = 400; p.ty = 450;
+  g.bullets.length = 0;
+  run(g, 12);
+  const w = g.bullets.filter((b) => b.kind === 'pw');
+  ok('보조기가 따로 총을 쏨', w.length >= 2);
+  ok('보조기 총알은 비행기 위아래에서 나감', w.some((b) => b.y < 420) && w.some((b) => b.y > 480));
+
+  // 차지샷
+  const g2 = toPlay(newGame(1, 1));
+  const q = g2.players.get(1);
+  q.charge = 0.5; g2.bullets.length = 0;
+  g2.setInput(1, { charge: true });
+  ok('게이지가 한 칸도 안 차면 차지샷이 안 나감', !g2.bullets.some((b) => b.kind === 'pc'));
+  run(g2, Math.ceil(S.CHARGE_SEC * 3 / S.DT) + 2, god);
+  ok('게이지는 저절로 차서 3칸에서 멈춤', Math.abs(q.charge - S.CHARGE_MAX) < 1e-9);
+  g2.enemies.length = 0; g2.spawnQ.length = 0; g2.bullets.length = 0;
+  q.x = 300; q.y = 450; q.tx = 300; q.ty = 450;
+  const e1 = g2.spawnEnemy({ type: 'shieldy', hp: 150, spd: 0, fire: 99, gap: 1, count: 1, form: 'line' }, { x: 520, y: 450, delay: 0, pat: 'stop', amp: 0, per: 1, hold: 99 });
+  const e2 = g2.spawnEnemy({ type: 'scout', hp: 150, spd: 0, fire: 99, gap: 1, count: 1, form: 'line' }, { x: 700, y: 452, delay: 0, pat: 'stop', amp: 0, per: 1, hold: 99 });
+  g2.setInput(1, { charge: true });
+  eq('쏘면 게이지가 비워짐', q.charge, 0);
+  const pc = g2.bullets.find((b) => b.kind === 'pc');
+  ok('차지탄이 나감', !!pc);
+  for (let i = 0; i < 12; i++) { g2.spawnQ.length = 0; god(g2); g2.stepBullets(S.DT); g2.collide(); }
+  ok('차지탄은 방패기까지 뚫고 뒤의 적도 맞힘', e1.hp < 150 && e2.hp < 150, 'hp ' + e1.hp + ', ' + e2.hp);
+  ok('차지탄은 한 적을 한 번만 때림', e2.hp >= 150 - pc.dmg - 1e-6);
+
+  // 메달 연쇄
+  const g3 = toPlay(newGame(1, 1));
+  const m = g3.players.get(1);
+  const s0 = m.score; g3.grab(m, 'star'); const v1 = m.score - s0;
+  const s1 = m.score; g3.grab(m, 'star'); const v2 = m.score - s1;
+  eq('첫 메달은 100점', v1, 100);
+  ok('이어 먹으면 더 비쌈 (' + v2 + ')', v2 > v1);
+  run(g3, Math.ceil(S.CHAIN_SEC / S.DT) + 2, god);
+  const s2 = m.score; g3.grab(m, 'star');
+  eq('6초가 지나면 연쇄가 끊겨 다시 100점', m.score - s2, 100);
+
+  // 튕기는 P
+  const g4 = toPlay(newGame(1, 1));
+  g4.players.get(1).x = 100; g4.players.get(1).tx = 100; g4.players.get(1).y = 800; g4.players.get(1).ty = 800;
+  const k = g4.addPickup('pow', 900, 90);
+  k.vy = -150;
+  for (let i = 0; i < 10; i++) g4.stepPickups(S.DT);
+  ok('P 아이템은 화면 끝에서 튕겨 나옴', k.vy > 0 && k.y >= 70);
+
+  const sn = toPlay(newGame(1, 1)).snapshot();
+  eq('스냅샷 아군 줄에 차지·메달 칸이 있음', sn.P[0].length, 17);
+}
+
 } catch (err) {
   ok('테스트가 끝까지 돌아감', false, (err && err.message) + '  ·  ' + String(err && err.stack).split('\n').slice(0, 3).join(' ← '));
 }

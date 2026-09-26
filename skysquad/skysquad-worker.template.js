@@ -138,7 +138,7 @@ export class SkyRoom extends DurableObject {
     try { m = JSON.parse(ev.data); } catch (e) { return; }
     if (m.a === 'i') {
       if (!this.game) return;
-      this.game.setInput(c.id, { tx: Number(m.tx), ty: Number(m.ty), bomb: !!m.b });
+      this.game.setInput(c.id, { tx: Number(m.tx), ty: Number(m.ty), bomb: !!m.b, charge: !!m.c });
     } else if (m.a === 'p') {
       this.send(ws, { a: 'p', s: m.s });
     }
